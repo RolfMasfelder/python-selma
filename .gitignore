@@ -1,0 +1,32 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+uv.lock
+
+# Virtual environments
+.venv
+
+# Dokus
+selma_docu/
+todo.md
+
+# Älterer Code
+1/
+
+# Sonstiges
+adapter_telegram.py
+adapter_webchat.py
+agent_runtime.py
+dashboard.py
+data.py
+gateway.py
+test_selma.py
+.env
+.python-version
+
+# my_mono
+my_mono/agent.py
