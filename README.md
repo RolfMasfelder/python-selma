@@ -1,5 +1,5 @@
 
-# Agent Selma 🤖
+# Agent Selma 👩🏻
 
 ### A "Toy" Implementation of OpenClaw with Python and Pydantic AI
 
@@ -18,7 +18,7 @@ The primary goal of this project is to deconstruct and understand the underlying
 
   * **Language:** [Python](https://www.python.org/)
   * **Framework:** [Pydantic AI](https://ai.pydantic.dev/) (for type-safe, structured model interactions)
-  * **Inspiration:** [OpenClaw](https://github.com/openclaw/openclaw)[PI-Agent](hhttps://github.com/badlogic/pi-mono)
+  * **Inspiration:** [OpenClaw](https://github.com/openclaw/openclaw)/[PI-Agent](hhttps://github.com/badlogic/pi-mono)
 
 
 ## 📅 Roadmap & Current Status

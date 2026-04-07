@@ -12,6 +12,7 @@ uv.lock
 
 # Dokus
 selma_docu/
+.my_mono/sessions/
 todo.md
 
 # Älterer Code

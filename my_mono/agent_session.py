@@ -1,4 +1,3 @@
-
 # ============================================================
 # my_mono/agent_session.py
 # ============================================================
@@ -33,10 +32,10 @@ from my_mono.system_prompt import build_system_prompt, BuildSystemPromptOptions
 logger = logging.getLogger(__name__)
 
 
-# ─── SESSION EINTRÄGE (JSONL) ────────────────────────────────
+# ─── SESSION ENTRIES (JSONL) ─────────────────────────────────
 
 class SessionEntryBase(BaseModel):
-    """Basisklasse für alle JSONL-Einträge."""
+    """Base class for all JSONL entries."""
     id: str = Field(default_factory=lambda: str(__import__("uuid").uuid4()))
     parent_id: str | None = None
     timestamp: str = Field(
@@ -54,8 +53,8 @@ class MessageEntry(SessionEntryBase):
     type: Literal["message"] = "message"
     role: Literal["user", "assistant", "tool"]
     content: str | None = None
-    tool_calls: list[dict] | None = None   # serialisierte ToolCallRequests
-    tool_call_id: str | None = None        # nur bei role="tool"
+    tool_calls: list[dict] | None = None   # serialized ToolCallRequests
+    tool_call_id: str | None = None        # only for role="tool"
 
 
 class CompactionEntry(SessionEntryBase):
@@ -81,8 +80,8 @@ AnyEntry = (
 
 class SessionManager:
     """
-    Verwaltet die JSONL-Datei auf Disk (append-only).
-    Der Baum entsteht durch id/parent_id-Verweise.
+    Manages the JSONL file on disk (append-only).
+    The tree is formed via id/parent_id references.
     """
 
     def __init__(self, session_file: Path | None = None):
@@ -102,7 +101,7 @@ class SessionManager:
 
     @classmethod
     def create(cls, cwd: str | Path = ".") -> "SessionManager":
-        """Erstellt eine neue Session-Datei im .my_mono/ Verzeichnis."""
+        """Creates a new session file in the .my_mono/ directory."""
         session_dir = Path(cwd) / ".my_mono" / "sessions"
         session_dir.mkdir(parents=True, exist_ok=True)
         session_id = str(__import__("uuid").uuid4())[:8]
@@ -111,13 +110,13 @@ class SessionManager:
 
     @classmethod
     def in_memory(cls) -> "SessionManager":
-        """Kein Disk-I/O — für Tests und Einmal-Nutzung."""
+        """No disk I/O — for tests and one-off usage."""
         return cls(session_file=None)
 
-    # ── Schreiben ───────────────────────────────────────────
+    # ── Write ────────────────────────────────────────────────
 
     def append_entry(self, entry: AnyEntry) -> AnyEntry:
-        """Hängt einen Eintrag an — setzt id/parent_id automatisch."""
+        """Appends an entry — sets id/parent_id automatically."""
         entry.parent_id = self._leaf_id
         self._leaf_id = entry.id
         self._entries.append(entry)
@@ -129,17 +128,17 @@ class SessionManager:
         logger.debug("Session entry | type=%s id=%s", entry.type, entry.id)
         return entry
 
-    # ── Lesen ───────────────────────────────────────────────
+    # ── Read ─────────────────────────────────────────────────
 
     def build_context(self) -> list[AgentMessage]:
         """
-        Rekonstruiert die LLM-relevanten Messages aus dem Baum.
-        Stoppt beim letzten Compaction-Eintrag — ältere Messages werden
-        durch den Summary ersetzt.
+        Reconstructs the LLM-relevant messages from the tree.
+        Stops at the last compaction entry — older messages are
+        replaced by the summary.
         """
         branch = self._get_branch()
 
-        # Letzten Compaction-Index finden
+        # Find the last compaction index
         last_compact = max(
             (i for i, e in enumerate(branch) if e.type == "compaction"),
             default=0
@@ -178,10 +177,10 @@ class SessionManager:
         meta = next((e for e in self._entries if e.type == "session"), None)
         return meta.id if meta else None
 
-    # ── Intern ──────────────────────────────────────────────
+    # ── Internal ─────────────────────────────────────────────
 
     def _get_branch(self) -> list[AnyEntry]:
-        """Läuft von leaf_id zur Wurzel — gibt aktiven Pfad zurück."""
+        """Walks from leaf_id to the root — returns the active path."""
         if not self._leaf_id:
             return []
         by_id = {e.id: e for e in self._entries}
@@ -194,7 +193,7 @@ class SessionManager:
         return path
 
     def _load(self, path: Path) -> None:
-        """Lädt eine bestehende JSONL-Datei."""
+        """Loads an existing JSONL file."""
         type_map = {
             "session": SessionMetaEntry,
             "message": MessageEntry,
@@ -216,15 +215,15 @@ class SessionManager:
 
 class Settings(BaseModel):
     block_images: bool = False
-    auto_compact_threshold: int = 100_000   # Token-Schätzwert
+    auto_compact_threshold: int = 100_000   # token estimate
     ollama_base_url: str = "http://localhost:11434/v1"
 
 
 class SettingsManager:
     """
-    Merged global (~/.my_mono/settings.json) und
-    projekt-lokal (.my_mono/settings.json).
-    Projekt überschreibt global.
+    Merges global (~/.my_mono/settings.json) and
+    project-local (.my_mono/settings.json) settings.
+    Project overrides global.
     """
 
     def __init__(self, cwd: str | Path = "."):
@@ -258,7 +257,7 @@ class ModelInfo(BaseModel):
 
 class ModelRegistry:
     """
-    Fragt Ollama nach verfügbaren Modellen via /api/tags (httpx).
+    Queries Ollama for available models via /api/tags (httpx).
     """
 
     def __init__(self, base_url: str = "http://localhost:11434"):
@@ -266,7 +265,7 @@ class ModelRegistry:
         self._models: list[ModelInfo] = []
 
     async def refresh(self) -> list[ModelInfo]:
-        """Aktuelle Modell-Liste von Ollama laden."""
+        """Fetches the current model list from Ollama."""
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{self._base_url}/api/tags")
             response.raise_for_status()
@@ -287,8 +286,8 @@ class ModelRegistry:
 
 class AgentSession:
     """
-    Wrapper um Agent.
-    Verbindet: Agent-Loop + Session-Persistenz + Compaction.
+    Wrapper around Agent.
+    Connects: agent loop + session persistence + compaction.
     """
 
     def __init__(
@@ -303,13 +302,13 @@ class AgentSession:
         self._settings_manager = settings_manager
         self._model_registry = model_registry
 
-        # DER entscheidende Schritt:
-        # Agent-Core weiß nichts von Sessions/Compaction.
-        # _build_context wird als Hook reingereicht — ab jetzt
-        # greift AgentSession bei jedem Turn ein, ohne den Loop zu ändern.
+        # THE key step:
+        # The agent core knows nothing about sessions/compaction.
+        # _build_context is injected as a hook — from now on
+        # AgentSession intervenes on every turn without modifying the loop.
         self._agent._options.convert_to_llm = self._build_context
 
-        # Agent-Events in Session persistieren
+        # Persist agent events into the session
         self._agent.subscribe(self._on_agent_event)
 
         logger.info("AgentSession initialized | session_id=%s",
@@ -318,9 +317,9 @@ class AgentSession:
     # ── Public API ───────────────────────────────────────────
 
     async def prompt(self, text: str) -> None:
-        """Schickt User-Nachricht an den Agent und wartet auf Completion."""
+        """Sends a user message to the agent and waits for completion."""
         if self._agent.state.is_streaming:
-            raise RuntimeError("Agent läuft bereits")
+            raise RuntimeError("Agent is already running")
 
         msg = UserMessage(content=text)
         self._persist_message(msg)
@@ -331,10 +330,10 @@ class AgentSession:
     def subscribe(self, listener: Callable[[AgentEvent], None]) -> Callable:
         return self._agent.subscribe(listener)
 
-    # ── Modell-Kontrolle ─────────────────────────────────────
+    # ── Model Control ────────────────────────────────────────
 
     async def set_model(self, model: str) -> None:
-        """Wechselt das Modell und schreibt Eintrag in JSONL."""
+        """Switches the model and writes an entry to JSONL."""
         self._agent.state.model = model
         self._session_manager.append_entry(ModelChangeEntry(model=model))
         logger.info("Model changed | model=%s", model)
@@ -343,10 +342,10 @@ class AgentSession:
         self._agent.state.thinking_level = level
         logger.info("Thinking level changed | level=%s", level)
 
-    # ── Session-Management ───────────────────────────────────
+    # ── Session Management ───────────────────────────────────
 
     async def new_session(self) -> None:
-        """Startet eine neue leere Session (neues JSONL)."""
+        """Starts a new empty session (new JSONL file)."""
         self._session_manager = SessionManager.create()
         self._agent.state.messages.clear()
         self._write_session_meta()
@@ -354,22 +353,22 @@ class AgentSession:
                     self._session_manager.get_session_id())
 
     async def resume_session(self, session_file: Path) -> None:
-        """Lädt eine gespeicherte Session und rekonstruiert den Kontext."""
+        """Loads a saved session and reconstructs the context."""
         self._session_manager = SessionManager(session_file=session_file)
         self._agent.state.messages = self._session_manager.build_context()
         logger.info("Session resumed | file=%s messages=%d",
                     session_file, len(self._agent.state.messages))
 
-    # ── Kompaktierung ────────────────────────────────────────
+    # ── Compaction ───────────────────────────────────────────
 
     async def compact(self, instructions: str = "") -> None:
         """
-        Fasst den bisherigen Kontext zusammen.
-        Danach bleibt nur der Summary im Live-Kontext.
+        Summarizes the current context.
+        Afterwards only the summary remains in the live context.
 
-        1. Gesamter Kontext → LLM → Summary
-        2. Summary als "compaction"-Eintrag in JSONL
-        3. Agent-State: nur noch der Summary
+        1. Full context → LLM → summary
+        2. Summary as "compaction" entry in JSONL
+        3. Agent state: only the summary remains
         """
         context = self._session_manager.build_context()
         token_estimate = sum(len(str(m)) for m in context)
@@ -411,23 +410,23 @@ class AgentSession:
 
     def _build_context(self, messages: list[AgentMessage]) -> list[AgentMessage]:
         """
-        Wird von Agent._run_loop() bei JEDEM Turn aufgerufen.
-        Hier greift AgentSession in den Loop ein — ohne ihn zu ändern.
+        Called by Agent._run_loop() on EVERY turn.
+        This is where AgentSession hooks into the loop — without modifying it.
 
-        messages kommt direkt vom Agent-Loop — enthält alle aktuellen
-        Messages inklusive Tool-Results die noch nicht persistiert sind.
+        messages comes directly from the agent loop — contains all current
+        messages including tool results that have not yet been persisted.
         """
         settings = self._settings_manager.get()
 
-        # 1. Live-Messages aus dem Agent-Loop verwenden
-        #    (nicht SessionManager — der kann Tool-Results noch nicht kennen)
+        # 1. Use live messages from the agent loop
+        #    (not SessionManager — it may not know about tool results yet)
         base_messages = list(messages)
 
-        # 2. Bilder filtern wenn in Settings deaktiviert
+        # 2. Filter images if disabled in settings
         if settings.block_images:
             base_messages = self._strip_images(base_messages)
 
-        # 3. Auto-Compaction: Token-Schätzwert überschritten?
+        # 3. Auto-compaction: token estimate exceeded?
         token_estimate = sum(len(str(m)) for m in base_messages)
         if token_estimate > settings.auto_compact_threshold:
             logger.info("Auto-compaction triggered | tokens_est=%d threshold=%d",
@@ -436,16 +435,16 @@ class AgentSession:
 
         return base_messages
 
-    # ── Persistenz ───────────────────────────────────────────
+    # ── Persistence ──────────────────────────────────────────
 
     def _on_agent_event(self, event: AgentEvent) -> None:
-        """Schreibt Agent-Events als Messages in die JSONL."""
+        """Writes agent events as messages to the JSONL file."""
         if event.type == "message_end":
             msg: AssistantMessage = event.payload
             self._persist_message(msg)
 
     def _persist_message(self, msg: AgentMessage) -> None:
-        """Jede Nachricht sofort in JSONL schreiben."""
+        """Writes each message immediately to JSONL."""
         if isinstance(msg, UserMessage):
             self._session_manager.append_entry(MessageEntry(
                 role="user",
@@ -472,19 +471,19 @@ class AgentSession:
         ))
 
     def _strip_images(self, messages: list[AgentMessage]) -> list[AgentMessage]:
-        """Bilder aus Messages entfernen (Platzhalter für multimodale Modelle)."""
-        return messages  # TODO: implementieren wenn multimodal nötig
+        """Removes images from messages (placeholder for multimodal models)."""
+        return messages  # TODO: implement when multimodal support is needed
 
     # ── Properties ───────────────────────────────────────────
 
     @property
     def state(self) -> AgentState:
-        """Direktzugriff auf den Agent-State — wie session.state in pi-mono."""
+        """Direct access to the agent state — like session.state in pi-mono."""
         return self._agent.state
 
     @property
     def agent(self) -> Agent:
-        """Escape-Hatch für Low-Level-Zugriff auf den Agent-Core."""
+        """Escape hatch for low-level access to the agent core."""
         return self._agent
 
     @property
@@ -517,19 +516,19 @@ class CreateSessionOptions(BaseModel):
 
 async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
     """
-    Die eine Factory-Funktion. Baut alles zusammen.
+    The single factory function. Assembles everything.
 
     create_agent_session()
     │
-    ├─ 1. ModelRegistry    → verfügbare Ollama-Modelle laden
-    ├─ 2. SessionManager   → neue JSONL oder bestehende laden
-    ├─ 3. SettingsManager  → global + projekt-lokal merged
-    ├─ 4. Modell auflösen  → Option > erstes verfügbares > Fehler
-    ├─ 5. ResourceLoader   → globale AGENTS.md laden
-    ├─ 6. System Prompt    → build_system_prompt() mit context_files
-    ├─ 7. Agent bauen      → nackter Loop, noch kein Context-Hook
-    ├─ 8. History laden    → bei continue_session: Baum → Messages
-    └─ 9. AgentSession     → überschreibt convert_to_llm → alles verdrahtet
+    ├─ 1. ModelRegistry    → load available Ollama models
+    ├─ 2. SessionManager   → create new JSONL or load existing
+    ├─ 3. SettingsManager  → merge global + project-local
+    ├─ 4. Resolve model    → option > first available > error
+    ├─ 5. ResourceLoader   → load global AGENTS.md
+    ├─ 6. System prompt    → build_system_prompt() with context_files
+    ├─ 7. Build agent      → bare loop, no context hook yet
+    ├─ 8. Load history     → on continue_session: tree → messages
+    └─ 9. AgentSession     → overrides convert_to_llm → everything wired up
     """
 
     # ── 1. Model Registry ───────────────────────────────────
@@ -551,20 +550,20 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
     # ── 3. Settings ─────────────────────────────────────────
     settings_manager = SettingsManager(cwd=options.cwd)
 
-    # ── 4. Modell auflösen ──────────────────────────────────
+    # ── 4. Resolve model ────────────────────────────────────
     model = options.model
     if not model:
         available = model_registry.get_available()
         if not available:
-            raise RuntimeError("Kein Ollama-Modell verfügbar. Ist Ollama gestartet?")
+            raise RuntimeError("No Ollama model available. Is Ollama running?")
         model = available[0].name
         logger.info("No model specified — using first available | model=%s", model)
 
-    # ── 5. Resources laden ──────────────────────────────────────
+    # ── 5. Load resources ───────────────────────────────────
     resource_loader = ResourceLoader(cwd=options.cwd or ".")
     context_files = resource_loader.load_context_files()
 
-    # ── 6. System Prompt bauen ──────────────────────────────────
+    # ── 6. Build system prompt ──────────────────────────────
     system_prompt = options.system_prompt or build_system_prompt(
         BuildSystemPromptOptions(
             cwd=options.cwd,
@@ -575,18 +574,18 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
                 len(system_prompt), len(context_files))
     logger.debug("System prompt content:\n%s", system_prompt)
 
-    # ── 7. Agent bauen ──────────────────────────────────────
-    # convert_to_llm ist Platzhalter — wird von AgentSession überschrieben
+    # ── 7. Build agent ──────────────────────────────────────
+    # convert_to_llm is a placeholder — will be overridden by AgentSession
     agent = Agent(AgentOptions(
         model=model,
         tools=options.tools,
         system_prompt=system_prompt,
         thinking_level=options.thinking_level,
         ollama_base_url=options.ollama_base_url,
-        convert_to_llm=lambda msgs: msgs,  # ← Platzhalter
+        convert_to_llm=lambda msgs: msgs,  # ← placeholder
     ))
 
-    # ── 8. History laden ────────────────────────────────────
+    # ── 8. Load history ─────────────────────────────────────
     if options.continue_session:
         agent.state.messages = session_manager.build_context()
         logger.info("History restored | messages=%d", len(agent.state.messages))
@@ -596,8 +595,8 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
             system_prompt=system_prompt,
         ))
 
-    # ── 9. AgentSession zusammensetzen ──────────────────────
-    # __init__ überschreibt agent.convert_to_llm → _build_context
+    # ── 9. Assemble AgentSession ────────────────────────────
+    # __init__ overrides agent.convert_to_llm → _build_context
     session = AgentSession(
         agent=agent,
         session_manager=session_manager,
