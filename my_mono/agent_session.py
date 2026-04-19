@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Literal, Callable
 from datetime import datetime, timezone
@@ -14,7 +15,8 @@ import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
-from my_mono.pydantic_agent import (
+from openai.types.chat import ChatCompletionMessageParam
+from my_mono.agent import (
     Agent,
     AgentOptions,
     AgentTool,
@@ -26,8 +28,9 @@ from my_mono.pydantic_agent import (
     ToolResultMessage,
 )
 
+from my_mono.tools import create_coding_tools
 from my_mono.resource_loader import ResourceLoader
-from my_mono.system_prompt import build_system_prompt, BuildSystemPromptOptions
+from my_mono.system_prompt import build_system_prompt, BuildSystemPromptOptions, CODING_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -109,9 +112,29 @@ class SessionManager:
         return cls(session_file=session_file)
 
     @classmethod
-    def in_memory(cls) -> "SessionManager":
-        """No disk I/O — for tests and one-off usage."""
-        return cls(session_file=None)
+    def open(cls, session_file: str | Path) -> "SessionManager":
+        """Opens an existing session file."""
+        return cls(session_file=Path(session_file))
+
+    @classmethod
+    def continue_recent(cls, cwd: str | Path = ".") -> "SessionManager":
+        """
+        Continues the most recent session in <cwd>/.my_mono/sessions/.
+        Creates a new session if none exists.
+        """
+        session_dir = Path(cwd) / ".my_mono" / "sessions"
+        files = sorted(
+            session_dir.glob("*.jsonl"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        ) if session_dir.exists() else []
+
+        if files:
+            logger.info("Continuing recent session | file=%s", files[0])
+            return cls(session_file=files[0])
+
+        logger.info("No recent session found — creating new one")
+        return cls.create(cwd=cwd)
 
     # ── Write ────────────────────────────────────────────────
 
@@ -221,30 +244,26 @@ class Settings(BaseModel):
 
 class SettingsManager:
     """
-    Merges global (~/.my_mono/settings.json) and
-    project-local (.my_mono/settings.json) settings.
-    Project overrides global.
+    Loads settings from a single file: <cwd>/.my_mono/settings.json.
+    Falls back to defaults if the file does not exist.
     """
 
     def __init__(self, cwd: str | Path = "."):
-        self._global = self._load(Path.home() / ".my_mono" / "settings.json")
-        self._project = self._load(Path(cwd) / ".my_mono" / "settings.json")
+        path = Path(cwd) / ".my_mono" / "settings.json"
+        if path.exists():
+            self._settings = Settings(**json.loads(path.read_text()))
+            logger.debug("Settings loaded | path=%s", path)
+        else:
+            self._settings = Settings()
 
     @classmethod
     def in_memory(cls, overrides: dict = {}) -> "SettingsManager":
         mgr = cls.__new__(cls)
-        mgr._global = Settings()
-        mgr._project = Settings(**overrides)
+        mgr._settings = Settings(**overrides)
         return mgr
 
     def get(self) -> Settings:
-        merged = {**self._global.model_dump(), **self._project.model_dump()}
-        return Settings(**merged)
-
-    def _load(self, path: Path) -> Settings:
-        if path.exists():
-            return Settings(**json.loads(path.read_text()))
-        return Settings()
+        return self._settings
 
 
 # ─── MODEL REGISTRY ──────────────────────────────────────────
@@ -387,7 +406,7 @@ class AgentSession:
             base_url=self._agent._options.ollama_base_url,
             api_key="ollama",
         )
-        openai_messages = self._agent._to_openai_messages(context)
+        openai_messages = self._to_openai_messages(context)
         openai_messages.append({"role": "user", "content": summary_prompt})
 
         response = await client.chat.completions.create(
@@ -405,6 +424,51 @@ class AgentSession:
         self._agent.state.messages = [UserMessage(content=f"[Summary]: {summary}")]
 
         logger.info("Compaction done | summary_len=%d", len(summary))
+
+    # ── OpenAI Format Conversion ────────────────────────────
+
+    def _to_openai_messages(
+        self, messages: list[AgentMessage]
+    ) -> list[ChatCompletionMessageParam]:
+        """
+        Convert internal AgentMessages to the OpenAI messages format.
+        Includes the system prompt as the first message.
+        Used by compact() to build the summarisation request.
+        """
+        result: list[ChatCompletionMessageParam] = []
+
+        if self._agent._options.system_prompt:
+            result.append({"role": "system",
+                           "content": self._agent._options.system_prompt})
+
+        for msg in messages:
+            if isinstance(msg, UserMessage):
+                result.append({"role": "user", "content": msg.content})
+
+            elif isinstance(msg, AssistantMessage):
+                entry: dict = {"role": "assistant", "content": msg.content or ""}
+                if msg.tool_calls:
+                    entry["tool_calls"] = [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": json.dumps(tc.arguments),
+                            },
+                        }
+                        for tc in msg.tool_calls
+                    ]
+                result.append(entry)
+
+            elif isinstance(msg, ToolResultMessage):
+                result.append({
+                    "role": "tool",
+                    "tool_call_id": msg.tool_call_id,
+                    "content": msg.content,
+                })
+
+        return result
 
     # ── convert_to_llm Hook ──────────────────────────────────
 
@@ -508,7 +572,7 @@ class CreateSessionOptions(BaseModel):
     thinking_level: Literal["low", "medium", "high"] = "low"
     ollama_base_url: str = "http://localhost:11434/v1"
     cwd: str = "."
-    in_memory: bool = False
+    session_manager: SessionManager | None = None
     continue_session: Path | None = None
 
     model_config = {"arbitrary_types_allowed": True}
@@ -525,10 +589,11 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
     ├─ 3. SettingsManager  → merge global + project-local
     ├─ 4. Resolve model    → option > first available > error
     ├─ 5. ResourceLoader   → load global AGENTS.md
-    ├─ 6. System prompt    → build_system_prompt() with context_files
-    ├─ 7. Build agent      → bare loop, no context hook yet
-    ├─ 8. Load history     → on continue_session: tree → messages
-    └─ 9. AgentSession     → overrides convert_to_llm → everything wired up
+    ├─ 6. Instantiate tools → create_coding_tools(cwd) or caller-supplied
+    ├─ 7. Build system prompt → tool names + context_files
+    ├─ 8. Build agent      → bare loop, no context hook yet
+    ├─ 9. Load history     → on continue_session: tree → messages
+    └─ 10. AgentSession    → overrides convert_to_llm → everything wired up
     """
 
     # ── 1. Model Registry ───────────────────────────────────
@@ -540,10 +605,10 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
         logger.warning("ModelRegistry refresh failed: %s", e)
 
     # ── 2. Session Manager ──────────────────────────────────
-    if options.continue_session:
+    if options.session_manager is not None:
+        session_manager = options.session_manager
+    elif options.continue_session:
         session_manager = SessionManager(session_file=options.continue_session)
-    elif options.in_memory:
-        session_manager = SessionManager.in_memory()
     else:
         session_manager = SessionManager.create(cwd=options.cwd)
 
@@ -563,30 +628,55 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
     resource_loader = ResourceLoader(cwd=options.cwd or ".")
     context_files = resource_loader.load_context_files()
 
-    # ── 6. Build system prompt ──────────────────────────────
-    system_prompt = options.system_prompt or build_system_prompt(
-        BuildSystemPromptOptions(
-            cwd=options.cwd,
-            context_files=context_files,
-        )
+    # ── 6. Instantiate tools ────────────────────────────────
+    # Use caller-supplied tools, or fall back to the four standard coding tools
+    # (read, bash, edit, write) bound to the correct cwd.
+    tools = options.tools if options.tools else create_coding_tools(
+        options.cwd or os.getcwd()
     )
+    logger.debug("Tools loaded | names=%s", [t.name for t in tools])
+
+    # ── 7. Build system prompt ──────────────────────────────
+    # When tools were auto-created, reflect the actual tool names in the prompt.
+    if options.system_prompt:
+        system_prompt = options.system_prompt
+    else:
+        system_prompt = build_system_prompt(
+            BuildSystemPromptOptions(
+                cwd=options.cwd,
+                context_files=context_files,
+                selected_tools=[t.name for t in tools],
+                # Pass actual descriptions so custom tools appear correctly,
+                # not just the built-in TOOL_DESCRIPTIONS registry.
+                tool_descriptions={t.name: t.description for t in tools},
+            )
+        )
     logger.debug("System prompt built | length=%d context_files=%d",
                 len(system_prompt), len(context_files))
     logger.debug("System prompt content:\n%s", system_prompt)
 
-    # ── 7. Build agent ──────────────────────────────────────
+    # ── 8. Build agent ──────────────────────────────────────
     # convert_to_llm is a placeholder — will be overridden by AgentSession
     agent = Agent(AgentOptions(
         model=model,
-        tools=options.tools,
+        tools=tools,
         system_prompt=system_prompt,
         thinking_level=options.thinking_level,
         ollama_base_url=options.ollama_base_url,
         convert_to_llm=lambda msgs: msgs,  # ← placeholder
     ))
 
-    # ── 8. Load history ─────────────────────────────────────
-    if options.continue_session:
+    # ── 9. Load history ─────────────────────────────────────
+    # Restore history when opening an existing session (via session_manager
+    # with a file, or legacy continue_session).
+    has_existing = (
+        options.continue_session is not None
+        or (options.session_manager is not None
+            and options.session_manager.session_file is not None
+            and options.session_manager.session_file.exists()
+            and options.session_manager.get_session_id() is not None)
+    )
+    if has_existing:
         agent.state.messages = session_manager.build_context()
         logger.info("History restored | messages=%d", len(agent.state.messages))
     else:
@@ -595,7 +685,7 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
             system_prompt=system_prompt,
         ))
 
-    # ── 9. Assemble AgentSession ────────────────────────────
+    # ── 10. Assemble AgentSession ────────────────────────────
     # __init__ overrides agent.convert_to_llm → _build_context
     session = AgentSession(
         agent=agent,
@@ -604,7 +694,7 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
         model_registry=model_registry,
     )
 
-    logger.info("AgentSession ready | model=%s session_id=%s in_memory=%s",
-                model, session.session_id, options.in_memory)
+    logger.info("AgentSession ready | model=%s session_id=%s",
+                model, session.session_id)
 
     return session

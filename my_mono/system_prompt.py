@@ -12,9 +12,19 @@ from pydantic import BaseModel, Field
 # ─── TOOL DESCRIPTIONS ──────────────────────────────────────
 
 TOOL_DESCRIPTIONS: dict[str, str] = {
-    "read_file":       "Read file contents",
-    "list_directory":  "List directory contents",
+    "read":  "Read file contents (with optional offset/limit for large files)",
+    "write": "Write or overwrite a file (creates parent directories automatically)",
+    "edit":  "Replace exact text in a file (surgical, unique-match edit)",
+    "bash":  "Execute a bash command and return stdout + stderr",
+    "ls":    "List directory contents",
+    "grep":  "Search file contents for a regex or literal pattern",
+    "find":  "Search for files by glob pattern",
 }
+
+# Convenience groupings matching index.ts
+CODING_TOOLS   = ["read", "bash", "edit", "write"]
+READ_ONLY_TOOLS = ["read", "grep", "find", "ls"]
+ALL_TOOLS      = list(TOOL_DESCRIPTIONS.keys())
 
 
 # ─── OPTIONS ────────────────────────────────────────────────
@@ -28,22 +38,27 @@ class BuildSystemPromptOptions(BaseModel):
     custom_prompt: str | None = None
     """ Replaces the default prompt entirely. """
 
-    selected_tools: list[str] = Field(
-        default_factory=lambda: ["read_file", "list_directory"]
-    )
+    selected_tools: list[str] = Field(default_factory=lambda: list(CODING_TOOLS))
     """ Which tools are mentioned in the prompt. """
 
+    tool_descriptions: dict[str, str] = Field(default_factory=dict)
+    """
+    Tool name → description for the tools actually in use.
+    Takes precedence over TOOL_DESCRIPTIONS for known tools,
+    and covers custom tools not listed in TOOL_DESCRIPTIONS.
+    """
+
     prompt_guidelines: list[str] = Field(default_factory=list)
-    """ Additional guideline bullets. """
+    """ Additional guideline bullets appended after the auto-derived ones. """
 
     append_system_prompt: str | None = None
-    """ Text appended at the end. """
+    """ Text appended at the end (always, even with custom_prompt). """
 
     cwd: str | None = None
-    """ Working directory. Default: current directory. """
+    """ Working directory shown in the prompt. Default: process cwd. """
 
     context_files: list[ContextFile] = Field(default_factory=list)
-    """ Preloaded context files e.g. AGENTS.md """
+    """ Preloaded context files, e.g. AGENTS.md. """
 
 
 # ─── FUNCTION ───────────────────────────────────────────────
@@ -53,10 +68,10 @@ def build_system_prompt(options: BuildSystemPromptOptions | None = None) -> str:
     Builds the final system prompt string.
 
     Order:
-      1. custom_prompt OR default prompt with tool and guideline list
+      1. custom_prompt OR default prompt (tool list + auto-derived guidelines)
       2. + append_system_prompt (always appended)
       3. + context_files (e.g. AGENTS.md content)
-      4. + date and cwd
+      4. + current date and cwd
     """
     if options is None:
         options = BuildSystemPromptOptions()
@@ -76,32 +91,53 @@ def build_system_prompt(options: BuildSystemPromptOptions | None = None) -> str:
 
     # ── Default Prompt ───────────────────────────────────────
 
-    # Tools list
+    # Tools list (only include tools that are known)
+    # Merge: caller-supplied descriptions take precedence over the built-in registry.
+    # Tools not found in either dict are still listed — with just their name.
+    merged_descriptions = {**TOOL_DESCRIPTIONS, **options.tool_descriptions}
+
     tools_list = "\n".join(
-        f"- {name}: {TOOL_DESCRIPTIONS[name]}"
+        f"- {name}: {merged_descriptions[name]}" if name in merged_descriptions else f"- {name}"
         for name in options.selected_tools
-        if name in TOOL_DESCRIPTIONS
     ) or "(none)"
 
-    # Derive guidelines dynamically from available tools
+    # Auto-derive guidelines from selected tools
+    selected = set(options.selected_tools)
     guidelines: list[str] = []
 
-    has_read = "read_file" in options.selected_tools
-    has_ls   = "list_directory" in options.selected_tools
+    if "read" in selected:
+        guidelines.append(
+            "Use read to examine files. Never use bash cat or sed to read files."
+        )
+    if "ls" in selected:
+        guidelines.append("Use ls to explore directory structure.")
+    if "read" in selected and "ls" in selected:
+        guidelines.append(
+            "Use ls first to understand the directory structure, "
+            "then read for file details."
+        )
+    if "grep" in selected:
+        guidelines.append(
+            "Use grep to search file contents. Prefer literal=true for plain-text searches."
+        )
+    if "find" in selected:
+        guidelines.append("Use find to locate files by glob pattern.")
+    if "edit" in selected:
+        guidelines.append(
+            "Use edit for surgical changes to existing files. "
+            "The old_text must appear exactly once."
+        )
+    if "write" in selected:
+        guidelines.append(
+            "Use write to create new files or fully replace existing ones."
+        )
+    if "bash" in selected:
+        guidelines.append(
+            "Use bash for tasks that cannot be done with the other tools "
+            "(running tests, git commands, package managers, etc.)."
+        )
 
-    if has_read:
-        guidelines.append(
-            "Use read_file to examine files. Never use bash cat or sed to read files."
-        )
-    if has_ls:
-        guidelines.append(
-            "Use list_directory to explore the file system."
-        )
-    if has_read and has_ls:
-        guidelines.append(
-            "Use list_directory first to understand the structure, then read_file for details."
-        )
-
+    # Append any caller-supplied guidelines (deduplicated)
     for g in options.prompt_guidelines:
         g = g.strip()
         if g and g not in guidelines:
@@ -112,8 +148,7 @@ def build_system_prompt(options: BuildSystemPromptOptions | None = None) -> str:
 
     guidelines_str = "\n".join(f"- {g}" for g in guidelines)
 
-    prompt = f"""You are an expert coding assistant. \
-You help users by reading files and exploring directory structures.
+    prompt = f"""You are a personal assistant Answer all questions truthfully and to the best of your ability.
 
 Available tools:
 {tools_list}
@@ -129,7 +164,7 @@ Guidelines:
     return prompt
 
 
-# ─── HELPER FUNCTION ────────────────────────────────────────
+# ─── HELPER ─────────────────────────────────────────────────
 
 def _build_context_section(context_files: list[ContextFile]) -> str:
     """Appends context files (e.g. AGENTS.md) to the prompt."""

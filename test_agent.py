@@ -1,80 +1,43 @@
 # test for agent.py 
 
 import asyncio
-import json
 import logging
-from pathlib import Path
-from colorama import Fore, Style
-
 import colorama
-from my_mono.pydantic_agent import Agent, AgentOptions, AgentTool, ToolSchema, UserMessage
+from colorama import Fore, Style
+from my_mono.agent import Agent, AgentOptions, UserMessage
+from my_mono.tools import create_coding_tools
+from my_mono.test_helper import setup_logger
 
 colorama.init()
 
-# ─── LOGGING ────────────────────────────────────────────────
+# ─── SETUP ────────────────────────────────────────────
 
-# Set all other modules (openai, httpx, ...) to WARNING
 logging.basicConfig(level=logging.WARNING)
+setup_logger("my_mono.agent")
 
-# Set only the agent logger to DEBUG
-logging.getLogger("my_mono.agent").setLevel(logging.DEBUG)
-logging.getLogger("my_mono.agent").addHandler(
-    logging.StreamHandler()
-)
-logging.getLogger("my_mono.agent").propagate = False
-# propagate=False prevents events from also being
-# forwarded to the root logger
+tools = create_coding_tools(cwd=".")
 
-# custom format for the agent logger only
-handler = logging.getLogger("my_mono.agent").handlers[0]
-handler.setFormatter(logging.Formatter(
-    fmt="%(asctime)s %(levelname)-8s | %(message)s",
-    datefmt="%H:%M:%S",
+MODEL_NAME = "gemma4"
+
+agent_1 = Agent(AgentOptions(
+    model=MODEL_NAME,
+    system_prompt="You are a helpful assistant.",
 ))
 
-# ─── TOOLS ──────────────────────────────────────────────────
+agent_2 = Agent(AgentOptions(
+    model=MODEL_NAME,
+    system_prompt="You are a helpful assistant.",
+    tools=tools,
+))
 
-def read_file(path: str) -> str:
-    return Path(path).read_text(encoding="utf-8")
-
-read_tool = AgentTool(
-    name="read_file",
-    description="Reads a file from disk and returns its content.",
-    parameters=ToolSchema(
-        properties={
-            "path": {
-                "type": "string",
-                "description": "Path to the file to read",
-            }
-        },
-        required=["path"],
-    ),
-    execute=read_file,
-)
-
-# ─── AGENT SETUP ────────────────────────────────────────────
-
-agent_1 = Agent(
-    AgentOptions(
-        model="llama3.2",
-        system_prompt="You are a helpful assistant."
-    )
-)
-
-agent_2 = Agent(
-    AgentOptions(
-        model="llama3.2",
-        system_prompt="You are a helpful assistant.",
-        tools=[read_tool]
-    )
-)
 
 # ─── EVENT LISTENER ─────────────────────────────────────────
 
 def on_event(event):
     match event.type:
         case "message_end":
-            print(Fore.BLUE + event.payload.content + Style.RESET_ALL, end="", flush=True)
+            print(Fore.BLUE + (event.payload.content or "") + Style.RESET_ALL,
+                  end="", flush=True)
         case "agent_end":
             print()
 
@@ -92,12 +55,9 @@ async def main():
     await agent_1.prompt(UserMessage(content="Hello!"))
 
     print("=" * 50)
-    print("Test 2: Read config.json")
+    print("Test 2: List and read a file")
     print("=" * 50)
-    Path("config.json").write_text(
-        json.dumps({"version": "1.0", "debug": True}, indent=2)
-    )
-    await agent_2.prompt(UserMessage(content="Read config.json and summarize its content."))
+    await agent_2.prompt(UserMessage(content="List the current directory and read the README.md if it exists."))
 
 
 if __name__ == "__main__":
