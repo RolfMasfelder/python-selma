@@ -1,9 +1,12 @@
+from my_mono.tracing import setup; setup()
+
 import asyncio
 import logging
 
 from my_mono.agent_session import create_agent_session, CreateSessionOptions
 from my_mono.test_helper import setup_logger
 from my_mono.tools import create_read_only_tools
+from my_mono.tracing import tracer
 
 MODEL_NAME = "gemma4"
 
@@ -16,6 +19,7 @@ setup_logger("my_mono.agent_session")
 
 # ─── MAIN ───────────────────────────────────────────────────
 
+@tracer.agent(name="test_agent_session")
 async def main():
     session = await create_agent_session(CreateSessionOptions(
         model=MODEL_NAME,

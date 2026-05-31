@@ -1,7 +1,3 @@
-# ============================================================
-# my_mono/system_prompt.py
-# ============================================================
-
 from __future__ import annotations
 from datetime import date
 from pathlib import Path
@@ -15,14 +11,13 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "read":  "Read file contents (with optional offset/limit for large files)",
     "write": "Write or overwrite a file (creates parent directories automatically)",
     "edit":  "Replace exact text in a file (surgical, unique-match edit)",
-    "bash":  "Execute a bash command and return stdout + stderr",
     "ls":    "List directory contents",
     "grep":  "Search file contents for a regex or literal pattern",
     "find":  "Search for files by glob pattern",
 }
 
 # Convenience groupings matching index.ts
-CODING_TOOLS   = ["read", "bash", "edit", "write"]
+CODING_TOOLS   = ["read", "edit", "write"]
 READ_ONLY_TOOLS = ["read", "grep", "find", "ls"]
 ALL_TOOLS      = list(TOOL_DESCRIPTIONS.keys())
 

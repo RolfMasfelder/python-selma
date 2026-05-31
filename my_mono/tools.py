@@ -1,8 +1,8 @@
 # ============================================================
-# my_mono/coding_tools.py
+# my_mono/tools.py
 #
 # Python port of packages/coding-agent/src/core/tools/
-# Tools: read, write, edit, bash, ls, grep, find
+# Tools: read, write, edit, ls, grep, find
 #
 # All execute() functions are synchronous — pydantic_agent.py
 # runs them via asyncio.to_thread() automatically.
@@ -94,53 +94,6 @@ def _truncate_head(
 
     return output + notice
 
-
-def _truncate_tail(
-    content: str,
-    max_lines: int = DEFAULT_MAX_LINES,
-    max_bytes: int = DEFAULT_MAX_BYTES,
-) -> str:
-    """
-    Keep the last N lines / M bytes. Used for bash output.
-    Mirrors truncateTail() from truncate.ts.
-    """
-    total_bytes = len(content.encode("utf-8"))
-    lines = content.split("\n")
-    total_lines = len(lines)
-
-    if total_lines <= max_lines and total_bytes <= max_bytes:
-        return content
-
-    kept: list[str] = []
-    byte_count = 0
-    truncated_by = "bytes"
-
-    for i in range(len(lines) - 1, -1, -1):
-        if len(kept) >= max_lines:
-            truncated_by = "lines"
-            break
-        line = lines[i]
-        line_bytes = len(line.encode("utf-8")) + (1 if kept else 0)
-        if byte_count + line_bytes > max_bytes:
-            break
-        kept.insert(0, line)
-        byte_count += line_bytes
-
-    output = "\n".join(kept)
-    start_line = total_lines - len(kept) + 1
-
-    if truncated_by == "lines":
-        notice = (
-            f"\n\n[Showing lines {start_line}-{total_lines} of {total_lines}. "
-            f"Output truncated.]"
-        )
-    else:
-        notice = (
-            f"\n\n[Showing lines {start_line}-{total_lines} of {total_lines} "
-            f"({_format_size(max_bytes)} limit). Output truncated.]"
-        )
-
-    return output + notice
 
 
 # ─── PATH UTILITIES ──────────────────────────────────────────
@@ -291,9 +244,17 @@ def _make_write_tool(cwd: str) -> AgentTool:
     Write (or overwrite) a file. Parent directories are created automatically.
     Mirrors createWriteTool() from write.ts.
     """
+    workspace = Path(cwd).resolve()
 
     def execute(path: str, content: str, **_) -> str:
         resolved = _resolve(cwd, path)
+        try:
+            resolved.resolve().relative_to(workspace)
+        except ValueError:
+            return (
+                f"Error: path '{path}' escapes the workspace directory. "
+                f"Use paths relative to '{cwd}' only."
+            )
         try:
             resolved.parent.mkdir(parents=True, exist_ok=True)
             resolved.write_text(content, encoding="utf-8")
@@ -332,8 +293,17 @@ def _make_edit_tool(cwd: str) -> AgentTool:
     Mirrors createEditTool() from edit.ts + fuzzyFindText() from edit-diff.ts.
     """
 
+    workspace = Path(cwd).resolve()
+
     def execute(path: str, old_text: str, new_text: str, **_) -> str:
         resolved = _resolve(cwd, path)
+        try:
+            resolved.resolve().relative_to(workspace)
+        except ValueError:
+            return (
+                f"Error: path '{path}' escapes the workspace directory. "
+                f"Use paths relative to '{cwd}' only."
+            )
 
         if not resolved.exists():
             return f"Error: file not found: {path}"
@@ -419,70 +389,6 @@ def _make_edit_tool(cwd: str) -> AgentTool:
         execute=execute,
     )
 
-
-def _make_bash_tool(cwd: str) -> AgentTool:
-    """
-    Execute a bash command in cwd. stdout and stderr are combined.
-    Output is tail-truncated to 2000 lines or 50KB — errors and final
-    results are always preserved.
-    Mirrors createBashTool() from bash.ts.
-    """
-
-    def execute(command: str, timeout: float | None = None, **_) -> str:
-        try:
-            result = subprocess.run(
-                command,
-                shell=True,
-                cwd=cwd,
-                capture_output=True,
-                timeout=timeout,
-            )
-        except subprocess.TimeoutExpired:
-            return f"Command timed out after {timeout} seconds"
-        except Exception as e:
-            return f"Error executing command: {e}"
-
-        stdout = result.stdout.decode("utf-8", errors="replace")
-        stderr = result.stderr.decode("utf-8", errors="replace")
-
-        # Combine stdout + stderr (mirrors bash.ts merging both streams)
-        combined = stdout
-        if stderr:
-            if combined and not combined.endswith("\n"):
-                combined += "\n"
-            combined += stderr
-
-        output = _truncate_tail(combined) if combined else "(no output)"
-
-        if result.returncode != 0:
-            output += f"\n\nCommand exited with code {result.returncode}"
-
-        return output
-
-    return AgentTool(
-        name="bash",
-        description=(
-            f"Execute a bash command in the current working directory. "
-            f"Returns stdout and stderr. "
-            f"Output is truncated to the last {DEFAULT_MAX_LINES} lines or "
-            f"{DEFAULT_MAX_BYTES // 1024}KB (whichever is hit first). "
-            f"Optionally provide a timeout in seconds."
-        ),
-        parameters=ToolSchema(
-            properties={
-                "command": {
-                    "type": "string",
-                    "description": "Bash command to execute",
-                },
-                "timeout": {
-                    "type": "number",
-                    "description": "Timeout in seconds (optional, no default timeout)",
-                },
-            },
-            required=["command"],
-        ),
-        execute=execute,
-    )
 
 
 def _make_ls_tool(cwd: str) -> AgentTool:
@@ -845,13 +751,12 @@ def _make_find_tool(cwd: str) -> AgentTool:
 
 def create_coding_tools(cwd: str) -> list[AgentTool]:
     """
-    Create the four default coding tools configured for a specific working directory.
+    Create the default coding tools configured for a specific working directory.
     Equivalent to createCodingTools() from index.ts.
-    Tools: read, bash, edit, write
+    Tools: read, edit, write
     """
     return [
         _make_read_tool(cwd),
-        _make_bash_tool(cwd),
         _make_edit_tool(cwd),
         _make_write_tool(cwd),
     ]
@@ -859,7 +764,7 @@ def create_coding_tools(cwd: str) -> list[AgentTool]:
 
 def create_read_only_tools(cwd: str) -> list[AgentTool]:
     """
-    Read-only tools for safe exploration (no write/edit/bash).
+    Read-only tools for safe exploration (no write/edit).
     Equivalent to createReadOnlyTools() from index.ts.
     Tools: read, grep, find, ls
     """
@@ -878,7 +783,6 @@ def create_all_tools(cwd: str) -> dict[str, AgentTool]:
     """
     return {
         "read":  _make_read_tool(cwd),
-        "bash":  _make_bash_tool(cwd),
         "edit":  _make_edit_tool(cwd),
         "write": _make_write_tool(cwd),
         "grep":  _make_grep_tool(cwd),

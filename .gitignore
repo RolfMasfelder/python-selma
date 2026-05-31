@@ -13,27 +13,17 @@ uv.lock
 # Config
 .my_mono/sessions/
 .selma/
+.pytest_cache/
 
 # Dokus
-selma_docu/
+selma_doc/
+doc/
 todo.md
 
 # Älterer Code
 1/
 
 # Sonstiges
-adapter_telegram.py
-adapter_webchat.py
-agent_runtime.py
-command_registry.py
-dashboard.py
-data.py
-gateway.py
-test_selma.py
 .env
 .python-version
-config.py
-runtime.py
-system_prompt.py
-test_config.py
-setup.py
+*.log

@@ -10,6 +10,8 @@
 #   /info          — print system prompt + full message history
 # ============================================================
 
+from my_mono.tracing import setup; setup()
+
 import argparse
 import asyncio
 import itertools
@@ -22,6 +24,7 @@ from colorama import Fore, Style, init as colorama_init
 from my_mono.agent_session import AgentSession, CreateSessionOptions, SessionManager, create_agent_session
 from my_mono.test_helper import setup_logger
 from my_mono.tools import create_coding_tools, create_read_only_tools
+from my_mono.tracing import tracer
 
 colorama_init(autoreset=False)
 
@@ -147,6 +150,7 @@ async def cmd_reset(current_session: AgentSession, tools=None) -> AgentSession:
 
 # ─── MAIN LOOP ───────────────────────────────────────────────
 
+@tracer.agent
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Chat client")
     parser.add_argument(

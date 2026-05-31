@@ -15,6 +15,8 @@ import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
+from my_mono.tracing import trace_and_log, tracer
+
 from openai.types.chat import ChatCompletionMessageParam
 from my_mono.agent import (
     Agent,
@@ -94,11 +96,11 @@ class SessionManager:
 
         if session_file and session_file.exists():
             self._load(session_file)
-            logger.info("Session loaded | file=%s entries=%d",
-                        session_file, len(self._entries))
+            trace_and_log(logger, f"SessionManager.__init__: Session loaded | file={session_file} entries={len(self._entries)}")
+
         else:
-            logger.info("Session started in-memory" if not session_file
-                        else f"Session started | file={session_file}")
+            trace_and_log(logger, f"SessionManager.__init__: Session started in-memory" if not session_file
+                        else f"SessionManager.__init__: Session started | file={session_file}")
 
     # ── Factory ─────────────────────────────────────────────
 
@@ -130,10 +132,10 @@ class SessionManager:
         ) if session_dir.exists() else []
 
         if files:
-            logger.info("Continuing recent session | file=%s", files[0])
+            trace_and_log(logger, f"SessionManager.continue_recent: Continuing recent session | file={files[0]}")
             return cls(session_file=files[0])
 
-        logger.info("No recent session found — creating new one")
+        trace_and_log(logger, f"SessionManager.continue_recent: No recent session found — creating new one")
         return cls.create(cwd=cwd)
 
     # ── Write ────────────────────────────────────────────────
@@ -148,7 +150,7 @@ class SessionManager:
             with self.session_file.open("a", encoding="utf-8") as f:
                 f.write(entry.model_dump_json() + "\n")
 
-        logger.debug("Session entry | type=%s id=%s", entry.type, entry.id)
+        trace_and_log(logger, f"SessionManager.append_entry: Session entry | type={entry.type} id={entry.id}")
         return entry
 
     # ── Read ─────────────────────────────────────────────────
@@ -192,8 +194,7 @@ class SessionManager:
                         content=entry.content or "",
                     ))
 
-        logger.debug("Context built | messages=%d (from %d entries)",
-                     len(messages), len(branch) - last_compact)
+        trace_and_log(logger, f"AgentSession._build_context: Context built | messages={len(messages)} (from {len(branch) - last_compact} entries)")
         return messages
 
     def get_session_id(self) -> str | None:
@@ -252,7 +253,7 @@ class SettingsManager:
         path = Path(cwd) / ".my_mono" / "settings.json"
         if path.exists():
             self._settings = Settings(**json.loads(path.read_text()))
-            logger.debug("Settings loaded | path=%s", path)
+            trace_and_log(logger, f"SettingsManager.__init__: Settings loaded | path={path}")
         else:
             self._settings = Settings()
 
@@ -274,6 +275,17 @@ class ModelInfo(BaseModel):
     modified_at: str = ""
 
 
+async def list_ollama_models(base_url: str = "http://localhost:11434") -> list[ModelInfo]:
+    """Fetches the current model list from Ollama's /api/tags endpoint."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"{base_url}/api/tags", timeout=10.0)
+        response.raise_for_status()
+        data = response.json()
+        models = [ModelInfo(**m) for m in data.get("models", [])]
+        trace_and_log(logger, f"list_ollama_models | models={[m.name for m in models]}")
+        return models
+
+
 class ModelRegistry:
     """
     Queries Ollama for available models via /api/tags (httpx).
@@ -285,14 +297,8 @@ class ModelRegistry:
 
     async def refresh(self) -> list[ModelInfo]:
         """Fetches the current model list from Ollama."""
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{self._base_url}/api/tags")
-            response.raise_for_status()
-            data = response.json()
-            self._models = [ModelInfo(**m) for m in data.get("models", [])]
-            logger.info("ModelRegistry refreshed | models=%s",
-                        [m.name for m in self._models])
-            return self._models
+        self._models = await list_ollama_models(self._base_url)
+        return self._models
 
     def get_available(self) -> list[ModelInfo]:
         return self._models
@@ -314,12 +320,10 @@ class AgentSession:
         agent: Agent,
         session_manager: SessionManager,
         settings_manager: SettingsManager,
-        model_registry: ModelRegistry,
     ):
         self._agent = agent
         self._session_manager = session_manager
         self._settings_manager = settings_manager
-        self._model_registry = model_registry
 
         # THE key step:
         # The agent core knows nothing about sessions/compaction.
@@ -330,11 +334,11 @@ class AgentSession:
         # Persist agent events into the session
         self._agent.subscribe(self._on_agent_event)
 
-        logger.info("AgentSession initialized | session_id=%s",
-                    session_manager.get_session_id())
+        trace_and_log(logger, f"AgentSession.__init__: AgentSession initialized | session_id={session_manager.get_session_id()}")
 
     # ── Public API ───────────────────────────────────────────
 
+    @tracer.chain(name="AgentSession.prompt")
     async def prompt(self, text: str) -> None:
         """Sends a user message to the agent and waits for completion."""
         if self._agent.state.is_streaming:
@@ -355,11 +359,11 @@ class AgentSession:
         """Switches the model and writes an entry to JSONL."""
         self._agent.state.model = model
         self._session_manager.append_entry(ModelChangeEntry(model=model))
-        logger.info("Model changed | model=%s", model)
+        trace_and_log(logger, f"AgentSession.set_model: Model changed | model={model}")
 
     def set_thinking_level(self, level) -> None:
         self._agent.state.thinking_level = level
-        logger.info("Thinking level changed | level=%s", level)
+        trace_and_log(logger, f"AgentSession.set_thinking_level: Thinking level changed | level={level}")
 
     # ── Session Management ───────────────────────────────────
 
@@ -368,18 +372,17 @@ class AgentSession:
         self._session_manager = SessionManager.create()
         self._agent.state.messages.clear()
         self._write_session_meta()
-        logger.info("New session started | session_id=%s",
-                    self._session_manager.get_session_id())
+        trace_and_log(logger, f"AgentSession.new_session session_id={self._session_manager.get_session_id()}")
 
     async def resume_session(self, session_file: Path) -> None:
         """Loads a saved session and reconstructs the context."""
         self._session_manager = SessionManager(session_file=session_file)
         self._agent.state.messages = self._session_manager.build_context()
-        logger.info("Session resumed | file=%s messages=%d",
-                    session_file, len(self._agent.state.messages))
+        trace_and_log(logger, f"AgentSession.resume_session| file={session_file} messages={len(self._agent.state.messages)}")
 
     # ── Compaction ───────────────────────────────────────────
 
+    @tracer.tool(name="AgentSession.compact")
     async def compact(self, instructions: str = "") -> None:
         """
         Summarizes the current context.
@@ -392,8 +395,7 @@ class AgentSession:
         context = self._session_manager.build_context()
         token_estimate = sum(len(str(m)) for m in context)
 
-        logger.info("Compaction start | messages=%d tokens_est=%d",
-                    len(context), token_estimate)
+        trace_and_log(logger, f"AgentSession.compact: Compaction start | messages={len(context)} tokens_est={token_estimate}")
 
         extra = f"\nExtra instructions: {instructions}" if instructions else ""
         summary_prompt = (
@@ -406,7 +408,7 @@ class AgentSession:
             base_url=self._agent._options.ollama_base_url,
             api_key="ollama",
         )
-        openai_messages = self._to_openai_messages(context)
+        openai_messages = self._agent._to_openai_messages(context)
         openai_messages.append({"role": "user", "content": summary_prompt})
 
         response = await client.chat.completions.create(
@@ -423,54 +425,8 @@ class AgentSession:
 
         self._agent.state.messages = [UserMessage(content=f"[Summary]: {summary}")]
 
-        logger.info("Compaction done | summary_len=%d", len(summary))
+        trace_and_log(logger, f"AgentSession.compact: Compaction done | summary_len={len(summary)}")
 
-    # ── OpenAI Format Conversion ────────────────────────────
-
-    def _to_openai_messages(
-        self, messages: list[AgentMessage]
-    ) -> list[ChatCompletionMessageParam]:
-        """
-        Convert internal AgentMessages to the OpenAI messages format.
-        Includes the system prompt as the first message.
-        Used by compact() to build the summarisation request.
-        """
-        result: list[ChatCompletionMessageParam] = []
-
-        if self._agent._options.system_prompt:
-            result.append({"role": "system",
-                           "content": self._agent._options.system_prompt})
-
-        for msg in messages:
-            if isinstance(msg, UserMessage):
-                result.append({"role": "user", "content": msg.content})
-
-            elif isinstance(msg, AssistantMessage):
-                entry: dict = {"role": "assistant", "content": msg.content or ""}
-                if msg.tool_calls:
-                    entry["tool_calls"] = [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.name,
-                                "arguments": json.dumps(tc.arguments),
-                            },
-                        }
-                        for tc in msg.tool_calls
-                    ]
-                result.append(entry)
-
-            elif isinstance(msg, ToolResultMessage):
-                result.append({
-                    "role": "tool",
-                    "tool_call_id": msg.tool_call_id,
-                    "content": msg.content,
-                })
-
-        return result
-
-    # ── convert_to_llm Hook ──────────────────────────────────
 
     def _build_context(self, messages: list[AgentMessage]) -> list[AgentMessage]:
         """
@@ -482,19 +438,18 @@ class AgentSession:
         """
         settings = self._settings_manager.get()
 
-        # 1. Use live messages from the agent loop
-        #    (not SessionManager — it may not know about tool results yet)
+        # Use live messages from the agent loop
+        # (not SessionManager — it may not know about tool results yet)
         base_messages = list(messages)
 
-        # 2. Filter images if disabled in settings
+        # Filter images if disabled in settings
         if settings.block_images:
             base_messages = self._strip_images(base_messages)
 
-        # 3. Auto-compaction: token estimate exceeded?
+        # Auto-compaction: token estimate exceeded?
         token_estimate = sum(len(str(m)) for m in base_messages)
         if token_estimate > settings.auto_compact_threshold:
-            logger.info("Auto-compaction triggered | tokens_est=%d threshold=%d",
-                        token_estimate, settings.auto_compact_threshold)
+            trace_and_log(logger, f"AgentSession._build_context: Auto-compaction triggered | tokens_est={token_estimate} threshold={settings.auto_compact_threshold}")
             asyncio.create_task(self.compact())
 
         return base_messages
@@ -569,7 +524,7 @@ class CreateSessionOptions(BaseModel):
     model: str = "llama3.2"
     system_prompt: str | None = None 
     tools: list[AgentTool] = Field(default_factory=list)
-    thinking_level: Literal["low", "medium", "high"] = "low"
+    thinking_level: Literal["low", "medium", "high"] | None = None
     ollama_base_url: str = "http://localhost:11434/v1"
     cwd: str = "."
     session_manager: SessionManager | None = None
@@ -584,27 +539,18 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
 
     create_agent_session()
     │
-    ├─ 1. ModelRegistry    → load available Ollama models
-    ├─ 2. SessionManager   → create new JSONL or load existing
-    ├─ 3. SettingsManager  → merge global + project-local
-    ├─ 4. Resolve model    → option > first available > error
-    ├─ 5. ResourceLoader   → load global AGENTS.md
-    ├─ 6. Instantiate tools → create_coding_tools(cwd) or caller-supplied
-    ├─ 7. Build system prompt → tool names + context_files
-    ├─ 8. Build agent      → bare loop, no context hook yet
-    ├─ 9. Load history     → on continue_session: tree → messages
-    └─ 10. AgentSession    → overrides convert_to_llm → everything wired up
+    ├─ 1. SessionManager      → create new JSONL or load existing
+    ├─ 2. SettingsManager     → merge global + project-local
+    ├─ 3. Resolve model       → option > query Ollama > first available > error
+    ├─ 4. ResourceLoader      → load global AGENTS.md
+    ├─ 5. Instantiate tools   → create_coding_tools(cwd) or caller-supplied
+    ├─ 6. Build system prompt → tool names + context_files
+    ├─ 7. Build agent         → bare loop, no context hook yet
+    ├─ 8. Load history        → on continue_session: tree → messages
+    └─ 9. AgentSession        → create session
     """
 
-    # ── 1. Model Registry ───────────────────────────────────
-    base_url_root = options.ollama_base_url.replace("/v1", "")
-    model_registry = ModelRegistry(base_url=base_url_root)
-    try:
-        await model_registry.refresh()
-    except Exception as e:
-        logger.warning("ModelRegistry refresh failed: %s", e)
-
-    # ── 2. Session Manager ──────────────────────────────────
+    # ── 1. Session Manager ──────────────────────────────────
     if options.session_manager is not None:
         session_manager = options.session_manager
     elif options.continue_session:
@@ -612,31 +558,38 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
     else:
         session_manager = SessionManager.create(cwd=options.cwd)
 
-    # ── 3. Settings ─────────────────────────────────────────
+    # ── 2. Settings ─────────────────────────────────────────
     settings_manager = SettingsManager(cwd=options.cwd)
 
-    # ── 4. Resolve model ────────────────────────────────────
+    # ── 3. Resolve model ────────────────────────────────────
+    # ModelRegistry is only queried when no model is explicitly specified.
     model = options.model
     if not model:
+        base_url_root = options.ollama_base_url.replace("/v1", "")
+        model_registry = ModelRegistry(base_url=base_url_root)
+        try:
+            await model_registry.refresh()
+        except Exception as e:
+            trace_and_log(logger, f"create_agent_session: ModelRegistry refresh failed: {e}")
         available = model_registry.get_available()
         if not available:
             raise RuntimeError("No Ollama model available. Is Ollama running?")
         model = available[0].name
-        logger.info("No model specified — using first available | model=%s", model)
+        trace_and_log(logger, f"create_agent_session: No model specified — using first available | model={model}")
 
-    # ── 5. Load resources ───────────────────────────────────
+    # ── 4. Load resources ───────────────────────────────────
     resource_loader = ResourceLoader(cwd=options.cwd or ".")
     context_files = resource_loader.load_context_files()
 
-    # ── 6. Instantiate tools ────────────────────────────────
-    # Use caller-supplied tools, or fall back to the four standard coding tools
-    # (read, bash, edit, write) bound to the correct cwd.
+    # ── 5. Instantiate tools ────────────────────────────────
+    # Use caller-supplied tools, or fall back to the standard coding tools
+    # (read, edit, write) bound to the correct cwd.
     tools = options.tools if options.tools else create_coding_tools(
         options.cwd or os.getcwd()
     )
-    logger.debug("Tools loaded | names=%s", [t.name for t in tools])
+    trace_and_log(logger, f"create_agent_session: Tools loaded | names={ [t.name for t in tools] }")
 
-    # ── 7. Build system prompt ──────────────────────────────
+    # ── 6. Build system prompt ──────────────────────────────
     # When tools were auto-created, reflect the actual tool names in the prompt.
     if options.system_prompt:
         system_prompt = options.system_prompt
@@ -651,11 +604,10 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
                 tool_descriptions={t.name: t.description for t in tools},
             )
         )
-    logger.debug("System prompt built | length=%d context_files=%d",
-                len(system_prompt), len(context_files))
-    logger.debug("System prompt content:\n%s", system_prompt)
+    trace_and_log(logger, f"create_agent_session: System prompt built | length={len(system_prompt)} context_files={len(context_files)}")
+    trace_and_log(logger, f"create_agent_session: System prompt content:\n{system_prompt}")
 
-    # ── 8. Build agent ──────────────────────────────────────
+    # ── 7. Build agent ──────────────────────────────────────
     # convert_to_llm is a placeholder — will be overridden by AgentSession
     agent = Agent(AgentOptions(
         model=model,
@@ -666,7 +618,7 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
         convert_to_llm=lambda msgs: msgs,  # ← placeholder
     ))
 
-    # ── 9. Load history ─────────────────────────────────────
+    # ── 8. Load history ─────────────────────────────────────
     # Restore history when opening an existing session (via session_manager
     # with a file, or legacy continue_session).
     has_existing = (
@@ -685,16 +637,13 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
             system_prompt=system_prompt,
         ))
 
-    # ── 10. Assemble AgentSession ────────────────────────────
-    # __init__ overrides agent.convert_to_llm → _build_context
+    # ── 9. Assemble AgentSession ─────────────────────────────
     session = AgentSession(
         agent=agent,
         session_manager=session_manager,
         settings_manager=settings_manager,
-        model_registry=model_registry,
     )
 
-    logger.info("AgentSession ready | model=%s session_id=%s",
-                model, session.session_id)
+    trace_and_log(logger, f"create_agent_session: AgentSession ready | model={model} session_id={session.session_id}")
 
     return session

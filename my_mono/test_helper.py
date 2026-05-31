@@ -1,4 +1,5 @@
 import logging
+from my_mono import tracing
 
 
 def setup_logger(name: str, level: int = logging.DEBUG) -> None:
@@ -12,3 +13,5 @@ def setup_logger(name: str, level: int = logging.DEBUG) -> None:
         datefmt="%H:%M:%S",
     ))
     log.addHandler(handler)
+    if tracing.otel_handler is not None:
+        log.addHandler(tracing.otel_handler)

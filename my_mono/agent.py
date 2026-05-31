@@ -17,6 +17,8 @@ from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, Field
 
+from my_mono.tracing import tracer, add_span_infos, trace_and_log
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,14 +64,14 @@ class ToolResultMessage(BaseModel):
 
 AgentMessage = UserMessage | AssistantMessage | ToolResultMessage
 
-ThinkingLevel = Literal["low", "medium", "high"]
+ThinkingLevel = Literal["low", "medium", "high"] | None
 
 
 class AgentState(BaseModel):
     messages: list[AgentMessage] = Field(default_factory=list)
     tools: list[AgentTool] = Field(default_factory=list)
     model: str = "llama3.1:8b"
-    thinking_level: ThinkingLevel = "low"
+    thinking_level: ThinkingLevel = None
     is_streaming: bool = False
     custom: dict[str, Any] = Field(default_factory=dict)
 
@@ -80,8 +82,9 @@ class AgentOptions(BaseModel):
     model: str
     tools: list[AgentTool] = Field(default_factory=list)
     system_prompt: str = ""
-    thinking_level: ThinkingLevel = "low"
+    thinking_level: ThinkingLevel = None
     ollama_base_url: str = "http://localhost:11434/v1"
+    logging_event_filter: list[str] = Field(default_factory=lambda: ["message_update"])
     convert_to_llm: Callable[[list[AgentMessage]], list[AgentMessage]] = Field(
         default=lambda msgs: msgs,
         exclude=True,
@@ -133,6 +136,7 @@ class Agent:
 
     # ── Agent Loop ───────────────────────────────────────────
 
+    @tracer.chain(name="Agent._run_loop : My Agent Loop")
     async def _run_loop(self) -> None:
         """
         Agentic loop:
@@ -146,7 +150,7 @@ class Agent:
         turn = 0
 
         # Tool schema is static for the entire run
-        openai_tools = self._build_openai_tools()
+        openai_tools = self._to_openai_tools()
 
         try:
             while True:
@@ -164,12 +168,15 @@ class Agent:
                 # {index: {"id": str, "name": str, "arguments": str}}
                 tool_call_accumulators: dict[int, dict[str, str]] = {}
 
+                extra = {}
+                if self._state.thinking_level is not None:
+                    extra["reasoning_effort"] = self._state.thinking_level
                 stream = await self._client.chat.completions.create(
                     model=self._state.model,
                     messages=openai_messages,
                     tools=openai_tools or None,
                     stream=True,
-                    reasoning_effort=self._state.thinking_level, # Hier einfügen
+                    **extra,
                 )
 
                 async for chunk in stream:
@@ -233,14 +240,7 @@ class Agent:
 
                 # Execute each tool and append its result
                 for tc in tool_calls:
-                    self._emit("tool_start", tc)
-                    logger.info("Tool start | name=%s args=%s", tc.name, tc.arguments)
-
                     result_content = await self._execute_tool(tc)
-
-                    logger.info("Tool end | name=%s result_len=%d",
-                                tc.name, len(result_content))
-                    self._emit("tool_end", tc)
 
                     self._state.messages.append(ToolResultMessage(
                         tool_call_id=tc.id,
@@ -261,9 +261,15 @@ class Agent:
 
     # ── Tool Execution ───────────────────────────────────────
 
+    @tracer.tool
     async def _execute_tool(self, tc: ToolCallRequest) -> str:
         """Look up the tool by name and call its execute function."""
+
+        add_span_infos(tool_name=tc.name, tool_arguments=json.dumps(tc.arguments))
+        self._emit("tool_start", tc)
+
         tool = next((t for t in self._state.tools if t.name == tc.name), None)
+
         if tool is None:
             return f"Error: unknown tool '{tc.name}'"
         try:
@@ -271,14 +277,18 @@ class Agent:
                 result = await tool.execute(**tc.arguments)
             else:
                 result = await asyncio.to_thread(tool.execute, **tc.arguments)
-            return str(result)
+            result_str = str(result)
+            add_span_infos(tool_result_len=len(result_str))
+            return result_str
         except Exception as e:
-            logger.exception("Tool '%s' failed: %s", tc.name, e)
+            add_span_infos(tool_error=str(e))
             return f"Error: {e}"
+        finally:
+            self._emit("tool_end", tc)
 
     # ── OpenAI Format Helpers ────────────────────────────────
 
-    def _build_openai_tools(self) -> list[dict]:
+    def _to_openai_tools(self) -> list[dict]:
         """Convert AgentTool list to the OpenAI function-calling schema."""
         return [
             {
@@ -332,9 +342,13 @@ class Agent:
 
     # ── Events ───────────────────────────────────────────────
 
+    def _log_allowed(self, event_type: str) -> bool:
+        return event_type not in self._options.logging_event_filter
+
     def _emit(self, event_type: str, payload: Any = None) -> None:
         event = AgentEvent(type=event_type, payload=payload)
-        logger.debug("Event | type=%s payload=%s", event.type, payload)
+        if self._log_allowed(event_type):
+            trace_and_log(logger, f"Event | type={event_type} payload={payload}")
         for listener in self._subscribers:
             try:
                 listener(event)

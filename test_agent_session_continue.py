@@ -1,3 +1,5 @@
+from my_mono.tracing import setup; setup()
+
 import asyncio
 import logging
 from datetime import datetime
@@ -7,6 +9,7 @@ from my_mono.agent import UserMessage
 from my_mono.agent_session import create_agent_session, CreateSessionOptions, SessionManager
 from my_mono.test_helper import setup_logger
 from my_mono.tools import create_read_only_tools
+from my_mono.tracing import tracer
 
 MODEL_NAME = "gemma4"
 
@@ -19,6 +22,7 @@ setup_logger("my_mono.agent_session")
 
 # ─── MAIN ───────────────────────────────────────────────────
 
+@tracer.agent(name="test_agent_session_continue")
 async def main():
     print("\n" + "=" * 60)
     print("  🗂️  my_mono — Session Management")
@@ -59,49 +63,6 @@ async def main():
     continued.subscribe(on_event)
     await continued.prompt("What is my name?")
     print()
-
-    # ── 3. List all sessions ──────────────────────────────────
-    print(f"\n── 3️⃣  List all existing sessions {'─' * 26}")
-    session_dir = cwd / ".my_mono" / "sessions"
-    all_files = sorted(
-        session_dir.glob("*.jsonl"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    ) if session_dir.exists() else []
-
-    print(f"  {len(all_files)} session(s) found:\n")
-    for path in all_files:
-        sm = SessionManager.open(path)
-        meta = next((e for e in sm._entries if e.type == "session"), None)
-        ts_fmt = (
-            datetime.fromisoformat(meta.timestamp).astimezone().strftime("%m/%d/%Y, %H:%M:%S")
-            if meta else "(unknown)"
-        )
-        first_user = next(
-            (m.content for m in sm.build_context() if isinstance(m, UserMessage)),
-            "(empty)",
-        )
-        print(f"  • {(sm.get_session_id() or '')[:8]}…  {ts_fmt}")
-        print(f"    First message: \"{(first_user or '')[:50]}…\"")
-        print(f"    File: {path}\n")
-
-    # ── 4. Open a specific session ────────────────────────────
-    if all_files:
-        print(f"\n── 4️⃣  Open a specific session (oldest) {'─' * 21}")
-        oldest = all_files[-1]
-        print(f"  Opening: {oldest}")
-
-        opened = await create_agent_session(CreateSessionOptions(
-            model=MODEL_NAME,
-            tools=tools,
-            session_manager=SessionManager.open(oldest),
-        ))
-        print(f"  session_id:   {opened.session_id}")
-        print(f"  session_file: {opened.session_file}")
-
-        opened.subscribe(on_event)
-        await opened.prompt("What was our first conversation about?")
-        print()
 
     print("✅ Done\n")
 

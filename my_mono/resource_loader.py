@@ -1,7 +1,3 @@
-# ============================================================
-# my_mono/resource_loader.py
-# ============================================================
-
 from __future__ import annotations
 import logging
 from pathlib import Path
