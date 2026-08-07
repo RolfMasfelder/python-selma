@@ -24,7 +24,7 @@ The primary goal is to deconstruct and understand the underlying architecture of
 |---|---|
 | Language | [Python 3.13+](https://www.python.org/) |
 | LLM API | [Ollama](https://ollama.com/) (local) or any OpenAI-compatible API |
-| Agent Framework | [Pydantic AI](https://ai.pydantic.dev/) — see [why it wasn't used](pydantic_ai.md) |
+| Agent Framework | [Pydantic AI](https://ai.pydantic.dev/) — see [why it wasn't used](doc/pydantic_ai.md) |
 | Gateway | [FastAPI](https://fastapi.tiangolo.com/) + [Uvicorn](https://www.uvicorn.org/) |
 | Dashboard | [Streamlit](https://streamlit.io/) |
 | Telegram Channel | [python-telegram-bot](https://python-telegram-bot.org/) |
