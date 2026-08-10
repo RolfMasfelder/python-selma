@@ -244,6 +244,15 @@ uv run test_agent.py
 ```
 
 
+## 🎮 Related Projects
+
+### Agent Selma Game
+
+[**agentselma-game**](https://github.com/gkvoelkl/agentselma-game) — *Play an Agent in an OpenClaw-like Architecture.*
+
+A browser-based game (self-contained HTML5, no build step) inspired by the C64 classic *Elevator Action*: you play Agent Selma, collect context documents from behind locked doors across eight floors, query a chat model and deliver the answers to the drones on the roof. Along the way the mechanics teach the same concepts this repository implements — context window management, debugging, channel routing and prompt-injection defense.
+
+
 ## 📅 Status
 
 **Version 1.0** — feature-complete first release (June 2026).
