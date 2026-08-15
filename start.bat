@@ -1,14 +1,17 @@
 @echo off
 setlocal
 
+cd /d "%~dp0"
+call venv\Scripts\activate.bat
+
 echo Starting Phoenix (UI: http://localhost:6006)...
-start "Selma Phoenix" cmd /C "uv run phoenix serve > phoenix.log 2>&1"
+start "Selma Phoenix" cmd /C "phoenix serve > phoenix.log 2>&1"
 
 echo Starting gateway (log: gateway.log)...
-start "Selma Gateway" cmd /C "uv run gateway.py > gateway.log 2>&1"
+start "Selma Gateway" cmd /C "python -m selma.gateway > gateway.log 2>&1"
 
 echo Starting dashboard (close this window or press Ctrl+C to stop)...
-uv run streamlit run dashboard.py
+streamlit run src\selma\dashboard.py
 
 echo.
 echo Shutting down...

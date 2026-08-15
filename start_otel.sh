@@ -1,6 +1,9 @@
 #!/bin/bash
 
-uv run phoenix serve &
+cd "$(dirname "$0")"
+source venv/bin/activate
+
+phoenix serve &
 
 sleep 2
 

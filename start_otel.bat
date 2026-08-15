@@ -1,6 +1,9 @@
 @echo off
+cd /d "%~dp0"
+call venv\Scripts\activate.bat
+
 echo Starting OpenTelemetry collector (Arize Phoenix)...
-start "Arize Phoenix" /B uv run phoenix serve
+start "Arize Phoenix" /B phoenix serve
 
 echo Waiting for Phoenix to start...
 timeout /T 2 /NOBREAK >nul

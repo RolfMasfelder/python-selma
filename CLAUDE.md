@@ -5,35 +5,46 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Install dependencies
-uv sync
+# Create and activate the virtual environment (once)
+python3 -m venv venv
+source venv/bin/activate      # Windows: venv\Scripts\activate.bat
+
+# Install Selma in editable mode + dev dependencies
+pip install -e ".[dev]"
+
+# Activate the pre-commit git hook (ruff lint + format + hygiene checks)
+pre-commit install
+
+# Run all checks manually
+pre-commit run --all-files
 
 # Initialize workspace and copy default skills
-uv run setup.py
+python -m selma.setup
 
 # Install browser tool support
-uv run playwright install chromium
+playwright install chromium
 
 # Run the gateway (REST API on :8000)
-uv run gateway.py
+python -m selma.gateway
 
 # Run all pytest-based unit tests
-uv run pytest
+pytest
 
 # Run integration test scripts individually
-uv run test_runtime.py
-uv run test_agent_session_chat.py   # interactive CLI chat
-uv run test_webchat.py
-uv run test_webchat_http.py
-uv run test_skills.py
-uv run test_function_call.py
+python tests/test_runtime.py
+python tests/test_agent_session_chat.py   # interactive CLI chat
+python tests/test_webchat.py
+python tests/test_skills.py
+python tests/test_function_call.py
 ```
+
+Every terminal used for this project must have `venv` activated first (`source venv/bin/activate`).
 
 ## Architecture
 
 Selma is an agentic AI gateway that routes user messages from multiple channels (WebChat, Telegram) through a three-layer agent engine and delivers streamed responses back.
 
-### Three-Layer Agent Engine (`runtime.py`)
+### Three-Layer Agent Engine (`src/selma/runtime.py`)
 
 ```
 Layer 1: agent_command()          — orchestration: who, which model, which session
@@ -58,11 +69,13 @@ User (Telegram / WebChat)
           → DeliveryContext callbacks → channel output
 ```
 
+All of the above live in `src/selma/` and are imported as `selma.<module>` (e.g. `from selma.runtime import agent_command`).
+
 ### Session Persistence
 
 Sessions are keyed by `session_key` and stored in `~/.selma/agents/main/sessions/` (or `.selma/` in cwd, or `$SELMA_STATE_DIR`):
 - `sessions.json` — map of session_key → SessionRecord (model, thinking level, skills snapshot, last interaction)
-- `<session_id>.jsonl` — full transcript, managed by `my_mono.agent_session`
+- `<session_id>.jsonl` — full transcript, managed by `selma.my_mono.agent_session`
 
 Sessions reset daily at a configured hour or after idle timeout.
 
@@ -83,18 +96,18 @@ Plus: skills snapshots (SKILL.md files, version-hashed and cached in SessionReco
 
 | File | Role |
 |------|------|
-| `gateway.py` | FastAPI app, SSE endpoints, heartbeat lifespan |
-| `runtime.py` | Three-layer engine, session management, error recovery |
-| `config.py` | Pydantic models loading `.selma/selma.json` |
-| `session_store.py` | SessionRecord persistence |
-| `system_prompt.py` | System prompt builder |
-| `tools.py` | Web search (DuckDuckGo), web fetch (trafilatura), browser (Playwright), file tools |
-| `skills.py` | SKILL.md loading and version hashing |
-| `heartbeat.py` | Scheduled proactive agent turns |
-| `compaction.py` | Session compression via LLM summarization |
-| `delivery.py` | Output callbacks (on_partial_reply, on_block_reply, on_tool_call) |
-| `resource_loader.py` | Workspace context file loading |
-| `my_mono/` | Core agent primitives: AgentSession, streaming, tool execution |
+| `src/selma/gateway.py` | FastAPI app, SSE endpoints, heartbeat lifespan |
+| `src/selma/runtime.py` | Three-layer engine, session management, error recovery |
+| `src/selma/config.py` | Pydantic models loading `.selma/selma.json` |
+| `src/selma/session_store.py` | SessionRecord persistence |
+| `src/selma/system_prompt.py` | System prompt builder |
+| `src/selma/tools.py` | Web search (DuckDuckGo), web fetch (trafilatura), browser (Playwright), file tools |
+| `src/selma/skills.py` | SKILL.md loading and version hashing |
+| `src/selma/heartbeat.py` | Scheduled proactive agent turns |
+| `src/selma/compaction.py` | Session compression via LLM summarization |
+| `src/selma/delivery.py` | Output callbacks (on_partial_reply, on_block_reply, on_tool_call) |
+| `src/selma/resource_loader.py` | Workspace context file loading |
+| `src/selma/my_mono/` | Core agent primitives: AgentSession, streaming, tool execution |
 
 ### Streaming / Block Chunking
 
@@ -106,13 +119,15 @@ Key settings: `model` (provider/model-id), `channels` (telegram, webchat), `hear
 
 ### Tracing
 
-OpenTelemetry via `my_mono.tracing`. Decorate key async functions with `@tracer.chain()` or `@tracer.agent()`. Phoenix collector on `localhost:6006` (no-op if unavailable).
+OpenTelemetry via `selma.my_mono.tracing`. Decorate key async functions with `@tracer.chain()` or `@tracer.agent()`. Phoenix collector on `localhost:6006` (no-op if unavailable).
 
 ## Conventions
 
 - All Python comments, docstrings, and Pydantic Field descriptions must be in English.
-- Use `uv run <script>.py` to run scripts, never `python` or `uv run python`.
+- The installable package lives in `src/selma/` (with `src/selma/my_mono/` as its low-level agent-primitives sub-package); tests live in `tests/`.
+- Use the project's `venv` for every terminal (`source venv/bin/activate`) and run scripts with plain `python`/`pytest`, never `uv`.
 - Async-first: all agent operations use `asyncio`.
 - Pydantic v2 `BaseModel` with `model_config` for serialization settings.
 - Tool filtering: `tools_allow` in config controls which tools are injected per session; filter happens at runtime, not at tool creation.
 - Bootstrap mode: if `BOOTSTRAP.md` has content, the first agent turn uses it as a special setup prompt, then clears the file.
+- Lint/format: `ruff` (config in `pyproject.toml`), enforced via `pre-commit`. Run `pre-commit run --all-files` before committing if the hook isn't installed.

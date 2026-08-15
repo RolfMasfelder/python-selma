@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(dirname "$0")"
+source venv/bin/activate
+
 GATEWAY_LOG="gateway.log"
 
 # Kill processes listening on port 8000
@@ -11,9 +14,9 @@ if [ -n "$PID" ]; then
 fi
 
 # Kill any remaining gateway.py processes by name
-PIDS=$(pgrep -f "gateway\.py" 2>/dev/null || true)
+PIDS=$(pgrep -f "selma\.gateway" 2>/dev/null || true)
 if [ -n "$PIDS" ]; then
-    echo "Stopping gateway.py processes (PID $PIDS)..."
+    echo "Stopping selma.gateway processes (PID $PIDS)..."
     echo "$PIDS" | xargs kill 2>/dev/null || true
 fi
 
@@ -24,5 +27,5 @@ for _ in $(seq 1 10); do
 done
 
 echo "Starting gateway (log: $GATEWAY_LOG)..."
-uv run gateway.py >> "$GATEWAY_LOG" 2>&1 &
+python -m selma.gateway >> "$GATEWAY_LOG" 2>&1 &
 echo "Gateway started (PID $!)."

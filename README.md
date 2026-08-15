@@ -33,18 +33,43 @@ The primary goal is to deconstruct and understand the underlying architecture of
 | Inspiration | [OpenClaw](https://github.com/openclaw/openclaw) / [PI-Agent](https://github.com/badlogic/pi-mono) |
 
 
+## 🗂️ Project Structure
+
+```
+src/selma/          ← installable "selma" package (the gateway/runtime code)
+    my_mono/         ← low-level agent primitives (Agent, AgentSession, tools, tracing)
+tests/               ← pytest suite + standalone integration scripts (see "Test Scripts" below)
+skills/              ← SKILL.md folders deployed into the workspace by `python -m selma.setup`
+templates/           ← default workspace context files (AGENTS.md, SOUL.md, ...)
+```
+
+Selma is installed in editable mode (`pip install -e .`), so `import selma` resolves to `src/selma/` from anywhere in the repo.
+
+
 ## 🚀 Installation
 
-**Prerequisites:** [uv](https://docs.astral.sh/uv/) must be installed. If you don't have it yet:
-
-```bash
-pip install uv
-```
+**Prerequisites:** Python 3.13+ and `venv` (both ship with a standard Python install).
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/agent-selma.git
 cd agent-selma
-uv sync
+python3 -m venv venv
+source venv/bin/activate      # Windows: venv\Scripts\activate.bat
+pip install -e ".[dev]"
+```
+
+`pip install -e ".[dev]"` installs Selma itself (from `src/selma/`) in editable mode plus the dev dependencies (`pytest`, `ruff`, `pre-commit`), so `import selma` works everywhere and code changes take effect immediately without reinstalling.
+
+Activate the git hooks once so lint/format checks run automatically on every commit:
+
+```bash
+pre-commit install
+```
+
+You can also run all checks manually at any time:
+
+```bash
+pre-commit run --all-files
 ```
 
 **Ollama** (for local models) — download and install from [ollama.com](https://ollama.com/download), then pull a model:
@@ -63,7 +88,7 @@ ollama list
 For the browser tool (Playwright), install Chromium once:
 
 ```bash
-uv run playwright install chromium
+playwright install chromium
 ```
 
 
@@ -72,7 +97,7 @@ uv run playwright install chromium
 Run the setup script once to create the `.selma/` directory, generate a default `selma.json`, and deploy skills and templates into the workspace:
 
 ```bash
-uv run setup.py
+python -m selma.setup
 ```
 
 The script is safe to re-run — it never overwrites existing files.
@@ -112,8 +137,8 @@ start.bat           # Windows
 Or start them individually:
 
 ```bash
-uv run gateway.py          # REST API on http://localhost:8000
-uv run streamlit run dashboard.py
+python -m selma.gateway                     # REST API on http://localhost:8000
+streamlit run src/selma/dashboard.py
 ```
 
 To restart only the gateway (e.g. after a code change):
@@ -126,12 +151,12 @@ restart_gateway.bat     # Windows
 
 ## 🖥 Dashboard
 
-The **Streamlit dashboard** (`dashboard.py`) is the primary web interface for chatting with Selma.
+The **Streamlit dashboard** (`src/selma/dashboard.py`) is the primary web interface for chatting with Selma.
 
 Start it together with the gateway via `./start.sh`, or standalone:
 
 ```bash
-uv run streamlit run dashboard.py
+streamlit run src/selma/dashboard.py
 ```
 
 The dashboard opens automatically in the browser at [http://localhost:8501](http://localhost:8501).
@@ -234,13 +259,13 @@ Scripts marked **pytest** are discovered and run by `pytest`. The others are sta
 Run the pytest suite:
 
 ```bash
-uv run pytest
+pytest
 ```
 
 Run a standalone script:
 
 ```bash
-uv run test_agent.py
+python tests/test_agent.py
 ```
 
 

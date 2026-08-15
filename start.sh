@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(dirname "$0")"
+source venv/bin/activate
+
 GATEWAY_LOG="gateway.log"
 PHOENIX_LOG="phoenix.log"
 
@@ -22,9 +25,9 @@ if [ -n "$PID" ]; then
     echo "Stopping process on port 8000 (PID $PID)..."
     kill "$PID" 2>/dev/null || true
 fi
-PIDS=$(pgrep -f "gateway\.py" 2>/dev/null || true)
+PIDS=$(pgrep -f "selma\.gateway" 2>/dev/null || true)
 if [ -n "$PIDS" ]; then
-    echo "Stopping gateway.py processes (PID $PIDS)..."
+    echo "Stopping selma.gateway processes (PID $PIDS)..."
     echo "$PIDS" | xargs kill 2>/dev/null || true
 fi
 for _ in $(seq 1 10); do
@@ -33,7 +36,7 @@ for _ in $(seq 1 10); do
 done
 
 echo "Starting Phoenix (log: $PHOENIX_LOG, UI: http://localhost:6006)..."
-uv run phoenix serve > "$PHOENIX_LOG" 2>&1 &
+phoenix serve > "$PHOENIX_LOG" 2>&1 &
 PHOENIX_PID=$!
 
 echo -n "Waiting for Phoenix..."
@@ -54,8 +57,8 @@ else
 fi
 
 echo "Starting gateway (log: $GATEWAY_LOG)..."
-uv run gateway.py > "$GATEWAY_LOG" 2>&1 &
+python -m selma.gateway > "$GATEWAY_LOG" 2>&1 &
 GATEWAY_PID=$!
 
 echo "Starting dashboard..."
-uv run streamlit run dashboard.py
+streamlit run src/selma/dashboard.py
