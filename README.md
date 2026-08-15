@@ -1,11 +1,13 @@
 
 # Agent Selma 👩🏻
 
-### A "Toy" Implementation of OpenClaw with Python
+## A "Toy" Implementation of OpenClaw with Python
 
+```html
 <p align="center">
   <img src="images/selma_portrait.png" width="300" alt="Agent Selma interacting with futuristic holographic data displays." />
 </p>
+```
 
 ## 🌟 Overview
 
@@ -16,7 +18,6 @@ The primary goal is to deconstruct and understand the underlying architecture of
 > [!WARNING]
 > **This is a toy project for learning purposes only.**
 > Selma is not hardened for production use. There are no security audits, no SLA guarantees, and no guarantees of stability or correctness. **Do not use this in any production or commercial environment.** Use at your own risk.
-
 
 ## 🛠 Tech Stack
 
@@ -32,10 +33,9 @@ The primary goal is to deconstruct and understand the underlying architecture of
 | Web tools | [Playwright](https://playwright.dev/python/), [Trafilatura](https://trafilatura.readthedocs.io/), [DDGS](https://github.com/deedy5/duckduckgo_search) |
 | Inspiration | [OpenClaw](https://github.com/openclaw/openclaw) / [PI-Agent](https://github.com/badlogic/pi-mono) |
 
-
 ## 🗂️ Project Structure
 
-```
+```txt
 src/selma/          ← installable "selma" package (the gateway/runtime code)
     my_mono/         ← low-level agent primitives (Agent, AgentSession, tools, tracing)
 tests/               ← pytest suite + standalone integration scripts (see "Test Scripts" below)
@@ -44,7 +44,6 @@ templates/           ← default workspace context files (AGENTS.md, SOUL.md, ..
 ```
 
 Selma is installed in editable mode (`pip install -e .`), so `import selma` resolves to `src/selma/` from anywhere in the repo.
-
 
 ## 🚀 Installation
 
@@ -91,7 +90,6 @@ For the browser tool (Playwright), install Chromium once:
 playwright install chromium
 ```
 
-
 ## ⚙️ Configuration
 
 Run the setup script once to create the `.selma/` directory, generate a default `selma.json`, and deploy skills and templates into the workspace:
@@ -112,6 +110,7 @@ The generated `.selma/selma.json` contains all available options with their defa
 ```
 
 Use the format `"provider/model-name"`, e.g.:
+
 - `"ollama/llama3.1"` — local Ollama instance (default)
 - `"openai/gpt-4o"` — OpenAI API (requires `OPENAI_API_KEY` in `.env`)
 - `"anthropic/claude-sonnet-4-6"` — Anthropic API (requires `ANTHROPIC_API_KEY` in `.env`)
@@ -123,7 +122,6 @@ TELEGRAM_TOKEN=...
 ```
 
 The WebChat channel needs no additional credentials.
-
 
 ## ▶️ Running Selma
 
@@ -147,7 +145,6 @@ To restart only the gateway (e.g. after a code change):
 ./restart_gateway.sh    # macOS / Linux
 restart_gateway.bat     # Windows
 ```
-
 
 ## 🖥 Dashboard
 
@@ -179,12 +176,11 @@ When `channels.webchat.enabled` is `true`, the gateway exposes a REST endpoint t
 
 Set `channels.telegram.enabled` to `true` and provide `TELEGRAM_TOKEN` in `.env`. The bot listens to direct messages and group mentions (`@BotName`).
 
-
 ## 🧩 Skills
 
 Skills extend Selma's behaviour without touching core code. Each skill lives in its own folder:
 
-```
+```txt
 skills/
   <skill-name>/
     SKILL.md        ← definition (YAML frontmatter + Markdown instructions)
@@ -210,7 +206,6 @@ user-invocable: true
 
 Built-in skills: `summarize`, `web-research`, `blogwatcher`, `healthcheck`.
 
-
 ## 🔭 Tracing & Monitoring
 
 Selma uses [OpenTelemetry](https://opentelemetry.io/) to emit spans for every agent run and records all LLM calls via the [OpenInference](https://github.com/Arize-ai/openinference) instrumentation. The traces are collected and visualised by [Arize Phoenix](https://phoenix.arize.com/) — an open-source LLM observability tool that runs entirely locally.
@@ -229,13 +224,13 @@ start_otel.bat      # Windows
 ```
 
 In the Phoenix UI you can inspect:
+
 - every agent run as a trace with individual spans
 - LLM input/output messages and token counts
 - tool calls and their results
 - Python log records attached to their span
 
 Tracing is **opt-in**: if Phoenix is not running, Selma operates normally with a no-op tracer — nothing breaks.
-
 
 ## 🧪 Test Scripts
 
@@ -268,7 +263,6 @@ Run a standalone script:
 python tests/test_agent.py
 ```
 
-
 ## 🎮 Related Projects
 
 ### Agent Selma Game
@@ -277,11 +271,9 @@ python tests/test_agent.py
 
 A browser-based game (self-contained HTML5, no build step) inspired by the C64 classic *Elevator Action*: you play Agent Selma, collect context documents from behind locked doors across eight floors, query a chat model and deliver the answers to the drones on the roof. Along the way the mechanics teach the same concepts this repository implements — context window management, debugging, channel routing and prompt-injection defense.
 
-
 ## 📅 Status
 
 **Version 1.0** — feature-complete first release (June 2026).
-
 
 ## ⚠️ Disclaimer
 
