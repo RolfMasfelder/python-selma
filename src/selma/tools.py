@@ -19,12 +19,12 @@ from playwright.sync_api import sync_playwright
 
 from selma.my_mono.agent import AgentTool, ToolSchema
 from selma.my_mono.tools import (
-    _make_edit_tool,
-    _make_find_tool,
-    _make_grep_tool,
-    _make_ls_tool,
-    _make_read_tool,
-    _make_write_tool,
+    make_edit_tool,
+    make_find_tool,
+    make_grep_tool,
+    make_ls_tool,
+    make_read_tool,
+    make_write_tool,
 )
 
 if TYPE_CHECKING:
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 # ─── WEB SEARCH ──────────────────────────────────────────────
 
 
-def _make_web_search_tool() -> AgentTool:
+def make_web_search_tool() -> AgentTool:
     """Web search via DuckDuckGo (ddgs)."""
 
     def execute(query: str, count: int = 5, **_) -> str:
@@ -78,7 +78,7 @@ def _make_web_search_tool() -> AgentTool:
 # ─── WEB FETCH ───────────────────────────────────────────────
 
 
-def _make_web_fetch_tool() -> AgentTool:
+def make_web_fetch_tool() -> AgentTool:
     """Fetch and extract the main text content of a URL using trafilatura."""
 
     def execute(url: str, **_) -> str:
@@ -135,7 +135,7 @@ def _make_web_fetch_tool() -> AgentTool:
 _BROWSER_MAX_CHARS = 20_000
 
 
-def _make_browser_tool(cwd: str) -> AgentTool:
+def make_browser_tool(cwd: str) -> AgentTool:
     """
     Headless Chromium via Playwright.
 
@@ -259,7 +259,7 @@ def _make_browser_tool(cwd: str) -> AgentTool:
 _MEMORY_MAX_LINES = 500
 
 
-def _make_memory_get_tool(cwd: str) -> AgentTool:
+def make_memory_get_tool(cwd: str) -> AgentTool:
     """Read a file from the memory workspace (MEMORY.md or memory/YYYY-MM-DD.md).
 
     cwd is the workspace directory itself (e.g. .selma/workspace), not the
@@ -330,7 +330,7 @@ def _make_memory_get_tool(cwd: str) -> AgentTool:
 # ─── MEMORY SEARCH ───────────────────────────────────────────
 
 
-def _make_memory_search_tool(cwd: str, config: SelmaConfig | None = None) -> AgentTool:
+def make_memory_search_tool(cwd: str, config: SelmaConfig | None = None) -> AgentTool:
     """
     FTS5 full-text search over all memory files.
     When config.memory.vector_search is True: hybrid FTS5 + cosine similarity.
@@ -446,15 +446,15 @@ def create_selma_tools(cwd: str, config: SelmaConfig | None = None) -> list[Agen
       - memory_get, memory_search
     """
     return [
-        _make_read_tool(cwd),
-        _make_write_tool(cwd),
-        _make_edit_tool(cwd),
-        _make_ls_tool(cwd),
-        _make_grep_tool(cwd),
-        _make_find_tool(cwd),
-        _make_web_search_tool(),
-        _make_web_fetch_tool(),
-        _make_browser_tool(cwd),
-        _make_memory_get_tool(cwd),
-        _make_memory_search_tool(cwd, config=config),
+        make_read_tool(cwd),
+        make_write_tool(cwd),
+        make_edit_tool(cwd),
+        make_ls_tool(cwd),
+        make_grep_tool(cwd),
+        make_find_tool(cwd),
+        make_web_search_tool(),
+        make_web_fetch_tool(),
+        make_browser_tool(cwd),
+        make_memory_get_tool(cwd),
+        make_memory_search_tool(cwd, config=config),
     ]

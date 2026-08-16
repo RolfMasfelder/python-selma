@@ -158,7 +158,7 @@ def _fuzzy_find(content: str, old_text: str) -> tuple[bool, int, int, str]:
 # ─── TOOL FACTORIES ──────────────────────────────────────────
 
 
-def _make_read_tool(cwd: str) -> AgentTool:
+def make_read_tool(cwd: str) -> AgentTool:
     """
     Read file contents with optional line range.
     offset: 1-based start line. limit: max lines to read.
@@ -238,7 +238,7 @@ def _make_read_tool(cwd: str) -> AgentTool:
     )
 
 
-def _make_write_tool(cwd: str) -> AgentTool:
+def make_write_tool(cwd: str) -> AgentTool:
     """
     Write (or overwrite) a file. Parent directories are created automatically.
     Mirrors createWriteTool() from write.ts.
@@ -281,7 +281,7 @@ def _make_write_tool(cwd: str) -> AgentTool:
     )
 
 
-def _make_edit_tool(cwd: str) -> AgentTool:
+def make_edit_tool(cwd: str) -> AgentTool:
     """
     Replace a unique occurrence of old_text with new_text.
     Tries exact match first, then fuzzy match (trailing whitespace + Unicode normalization).
@@ -376,7 +376,7 @@ def _make_edit_tool(cwd: str) -> AgentTool:
     )
 
 
-def _make_ls_tool(cwd: str) -> AgentTool:
+def make_ls_tool(cwd: str) -> AgentTool:
     """
     List directory contents, sorted case-insensitively.
     Directories have a trailing '/'. Dotfiles are included.
@@ -452,7 +452,7 @@ def _make_ls_tool(cwd: str) -> AgentTool:
     )
 
 
-def _make_grep_tool(cwd: str) -> AgentTool:
+def make_grep_tool(cwd: str) -> AgentTool:
     """
     Search file contents for a pattern.
     Uses ripgrep (rg) when available, falls back to Python re.
@@ -667,7 +667,7 @@ def _make_grep_tool(cwd: str) -> AgentTool:
     )
 
 
-def _make_find_tool(cwd: str) -> AgentTool:
+def make_find_tool(cwd: str) -> AgentTool:
     """
     Search for files by glob pattern. Returns paths relative to the search directory.
     Truncated to 1000 results or 50KB.
@@ -757,9 +757,9 @@ def create_coding_tools(cwd: str) -> list[AgentTool]:
     Tools: read, edit, write
     """
     return [
-        _make_read_tool(cwd),
-        _make_edit_tool(cwd),
-        _make_write_tool(cwd),
+        make_read_tool(cwd),
+        make_edit_tool(cwd),
+        make_write_tool(cwd),
     ]
 
 
@@ -770,10 +770,10 @@ def create_read_only_tools(cwd: str) -> list[AgentTool]:
     Tools: read, grep, find, ls
     """
     return [
-        _make_read_tool(cwd),
-        _make_grep_tool(cwd),
-        _make_find_tool(cwd),
-        _make_ls_tool(cwd),
+        make_read_tool(cwd),
+        make_grep_tool(cwd),
+        make_find_tool(cwd),
+        make_ls_tool(cwd),
     ]
 
 
@@ -783,10 +783,10 @@ def create_all_tools(cwd: str) -> dict[str, AgentTool]:
     Equivalent to createAllTools() from index.ts.
     """
     return {
-        "read": _make_read_tool(cwd),
-        "edit": _make_edit_tool(cwd),
-        "write": _make_write_tool(cwd),
-        "grep": _make_grep_tool(cwd),
-        "find": _make_find_tool(cwd),
-        "ls": _make_ls_tool(cwd),
+        "read": make_read_tool(cwd),
+        "edit": make_edit_tool(cwd),
+        "write": make_write_tool(cwd),
+        "grep": make_grep_tool(cwd),
+        "find": make_find_tool(cwd),
+        "ls": make_ls_tool(cwd),
     }
