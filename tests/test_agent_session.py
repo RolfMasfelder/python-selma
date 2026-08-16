@@ -10,7 +10,7 @@ from selma.my_mono.test_helper import setup_logger
 from selma.my_mono.tools import create_read_only_tools
 from selma.my_mono.tracing import tracer
 
-MODEL_NAME = "gemma4"
+MODEL_NAME = "qwen2.5:7b"
 
 # ─── LOGGING ────────────────────────────────────────────────
 

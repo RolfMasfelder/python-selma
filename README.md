@@ -82,6 +82,10 @@ Ollama runs as a background service automatically after installation. Verify it 
 
 ```bash
 ollama list
+
+curl http://localhost:11434/api/tags     # verfügbare Modelle (= ollama list)
+curl http://localhost:11434/api/ps       # geladene Modelle (= ollama ps)
+
 ```
 
 For the browser tool (Playwright), install Chromium once:

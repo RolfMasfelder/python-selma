@@ -48,7 +48,7 @@ SELMA_CONFIG_CONTENT = {
 # -- Functions -------------------------------
 
 
-def setup(agent_base_dir="."):
+def setup(agent_base_dir: str = "."):
     """
     Initializes Selma's directory structure, configuration, and templates.
     """

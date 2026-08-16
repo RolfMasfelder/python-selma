@@ -59,7 +59,7 @@ class Spinner:
 
     def __init__(self, label: str = "thinking"):
         self._label = label
-        self._task: asyncio.Task | None = None
+        self._task: asyncio.Task[None] | None = None
         self._stopped = False
 
     def start(self) -> None:
@@ -89,7 +89,7 @@ def file_hash(path: Path) -> str:
 
 def snapshot(directory: Path) -> dict[str, str]:
     """Returns {relative_path: md5} for all files in directory."""
-    result = {}
+    result: dict[str, str] = {}
     if directory.exists():
         for f in sorted(directory.rglob("*")):
             if f.is_file():
