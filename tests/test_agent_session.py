@@ -15,8 +15,8 @@ MODEL_NAME = "gemma4"
 # ─── LOGGING ────────────────────────────────────────────────
 
 logging.basicConfig(level=logging.WARNING)
-setup_logger("my_mono.agent")
-setup_logger("my_mono.agent_session")
+setup_logger("selma.my_mono.agent")
+setup_logger("selma.my_mono.agent_session")
 
 
 # ─── MAIN ───────────────────────────────────────────────────

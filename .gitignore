@@ -8,7 +8,7 @@ wheels/
 uv.lock
 
 # Virtual environments
-.venv
+venv
 
 # Config
 .my_mono/sessions/

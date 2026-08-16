@@ -19,6 +19,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from selma.config import SelmaConfig
 from selma.my_mono.agent_session import CreateSessionOptions, create_agent_session
 from selma.my_mono.tracing import trace_and_log
 
@@ -46,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 async def compact_session(
     session_file: str,
-    config,
+    config: SelmaConfig,
 ) -> CompactionResult:
     """
     Compacts the session history in session_file.

@@ -1,4 +1,4 @@
-# uv run phoenix serve
+# phoenix serve
 # Phoenix UI: http://localhost:6006
 
 import logging
@@ -48,7 +48,7 @@ def setup(project_name: str = "selma-agent", logging_in_terminal: bool = True, e
     from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
     from phoenix.otel import register
 
-    kwargs: dict = {"project_name": project_name}
+    kwargs: dict[str, Any] = {"project_name": project_name}
     if endpoint:
         kwargs["endpoint"] = endpoint
     register(**kwargs)
@@ -62,9 +62,20 @@ def setup(project_name: str = "selma-agent", logging_in_terminal: bool = True, e
     # Bridge: forward Python log records into OTel (span context is preserved).
     otel_handler = LoggingHandler(logger_provider=logger_provider)
     root = logging.getLogger()
-    root.addHandler(otel_handler)
+
+    # """
+    #     root.addHandler(otel_handler)
+
+    #     if not logging_in_terminal:
+    #         for h in root.handlers[:]:
+    #             if isinstance(h, logging.StreamHandler) and h is not otel_handler:
+    #                 root.removeHandler(h)
+
+    # """
 
     if not logging_in_terminal:
         for h in root.handlers[:]:
-            if isinstance(h, logging.StreamHandler) and h is not otel_handler:
+            if isinstance(h, logging.StreamHandler):
                 root.removeHandler(h)
+
+    root.addHandler(otel_handler)

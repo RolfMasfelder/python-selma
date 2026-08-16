@@ -29,13 +29,13 @@ from selma.my_mono.tracing import tracer
 
 colorama_init(autoreset=False)
 
-MODEL_NAME = "gemma4:latest"
+MODEL_NAME = "qwen3.6:27b"
 
 # ─── LOGGING ────────────────────────────────────────────────
 
 # logging.basicConfig(level=logging.WARNING)
-# setup_logger("my_mono.agent")
-# setup_logger("my_mono.agent_session")
+# setup_logger("selma.my_mono.agent")
+# setup_logger("selma.my_mono.agent_session")
 
 # ─── HELPERS ────────────────────────────────────────────────
 
@@ -100,7 +100,7 @@ async def make_session(continue_recent: bool = True, tools=None) -> AgentSession
     session_manager = SessionManager.continue_recent(cwd=cwd) if continue_recent else SessionManager.create(cwd=cwd)
     return await create_agent_session(
         CreateSessionOptions(
-            model="gemma4:latest",
+            model=MODEL_NAME,
             session_manager=session_manager,
             tools=tools or [],
         )

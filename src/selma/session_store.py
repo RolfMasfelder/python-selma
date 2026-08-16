@@ -17,7 +17,6 @@
 # Layer 2 is managed by my_mono.agent_session.SessionManager.
 #
 # Simplifications compared to OpenClaw:
-#   - No in-memory cache (no TTL, no invalidation)
 #   - No Windows retry logic
 #   - No delivery normalisation
 #   - No legacy key migrations
@@ -37,6 +36,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from selma.config import SelmaConfig
 from selma.helper import resolve_state_dir
 from selma.my_mono.tracing import trace_and_log
 
@@ -235,7 +235,7 @@ def save_session_store(store: SessionStore) -> None:
     path = Path(store.store_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    data: dict = {}
+    data: dict[str, SessionRecord] = {}
     for key, record in store.sessions.items():
         data[key] = json.loads(record.model_dump_json())
 
@@ -262,7 +262,7 @@ def resolve_session(
     store: SessionStore,
     session_key: str | None,
     session_id: str | None,
-    config,
+    config: SelmaConfig,
 ) -> tuple[SessionRecord, bool]:
     """
     Finds the matching session or creates a new one.
@@ -359,12 +359,9 @@ def resolve_session_file(
 # ════════════════════════════════════════════════════════════
 
 
-async def update_session_store_after_run(
-    store: SessionStore,
-    session_record: SessionRecord,
-    result,
-    provider: str,
-    model: str,
+# async
+def update_session_store_after_run(
+    store: SessionStore, session_record: SessionRecord, provider: str, model: str
 ) -> None:
     """
     Updates the store after a completed run.

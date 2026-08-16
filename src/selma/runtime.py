@@ -19,7 +19,7 @@ import uuid
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import BaseModel, Field
 
@@ -256,7 +256,7 @@ def _resolve_skills_snapshot(
     session_record: SessionRecord,
     workspace_dir: str,
     is_new_session: bool,
-) -> SkillsSnapshot:
+) -> SkillsSnapshot | None:
     current_version = get_skills_snapshot_version(workspace_dir)
     needs_refresh = (
         is_new_session
@@ -411,7 +411,10 @@ async def agent_command(
                 workspace_dir=workspace_dir,
                 provider=provider,
                 model=model,
-                thinking_level=thinking_level,
+                thinking_level=cast(
+                    Literal["low", "medium", "high"] | None,
+                    thinking_level,
+                ),
                 timeout_ms=timeout_ms,
                 run_id=run_id,
                 skills_snapshot=skills_snapshot,
@@ -450,13 +453,7 @@ async def agent_command(
         logger.exception("agentCommand failed | run_id=%s", run_id)
         raise
 
-    await update_session_store_after_run(
-        store=store,
-        session_record=session_record,
-        result=result,
-        provider=provider,
-        model=model,
-    )
+    update_session_store_after_run(store=store, session_record=session_record, provider=provider, model=model)
 
     await deliver_result(result, delivery)
 
@@ -522,7 +519,7 @@ class AttemptResult(BaseModel):
 
 
 def pick_fallback_thinking_level(
-    current: Literal["low", "medium", "high"],
+    current: Literal["low", "medium", "high"] | None,
     attempted: set[Literal["low", "medium", "high"]],
 ) -> Literal["low", "medium", "high"] | None:
     """
@@ -542,6 +539,9 @@ def pick_fallback_thinking_level(
     Corresponds to pickFallbackThinkingLevel() in OpenClaw
     (src/agents/pi-embedded-runner/run.ts).
     """
+    if current is None:
+        return None
+
     try:
         current_index = THINKING_LEVEL_ORDER.index(current)
     except ValueError:
@@ -550,7 +550,7 @@ def pick_fallback_thinking_level(
 
     for level in THINKING_LEVEL_ORDER[current_index + 1 :]:
         if level not in attempted:
-            return level
+            return cast(Literal["low", "medium", "high"], level)
 
     return None  # No fallback possible
 
@@ -564,7 +564,9 @@ MAX_OVERFLOW_COMPACTION_ATTEMPTS = 3
 class LoopState(BaseModel):
     compaction_attempts: int = 0
     active_thinking: Literal["low", "medium", "high"] | None = None
-    attempted_thinking: set[Literal["low", "medium", "high"]] = Field(default_factory=set)
+    attempted_thinking: set[Literal["low", "medium", "high"]] = cast(
+        set[Literal["low", "medium", "high"]], Field(default_factory=set)
+    )
 
 
 def handle_aborted(
@@ -732,7 +734,8 @@ async def run_embedded_pi_agent(
     state = LoopState(active_thinking=opts.thinking_level)
 
     while True:
-        state.attempted_thinking.add(state.active_thinking)
+        if state.active_thinking is not None:
+            state.attempted_thinking.add(state.active_thinking)
 
         attempt = await run_embedded_attempt(opts.model_copy(update={"thinking_level": state.active_thinking}))
 

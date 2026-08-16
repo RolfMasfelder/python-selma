@@ -20,9 +20,9 @@ colorama.init()
 # ─── SETUP ────────────────────────────────────────────
 
 logging.basicConfig(level=logging.WARNING)
-setup_logger("my_mono.agent")
+setup_logger("selma.my_mono.agent")
 
-MODEL_NAME = "gemma4"
+MODEL_NAME = "qwen3.6-27b-t16"
 
 tools = create_read_only_tools(cwd=".")
 
