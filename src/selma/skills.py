@@ -25,7 +25,7 @@ from selma.session_store import SkillsSnapshot
 # ─── INTERNAL HELPERS ────────────────────────────────────────
 
 
-def _find_skill_files(workspace_dir: str) -> list[Path]:
+def find_skill_files(workspace_dir: str) -> list[Path]:
     """Returns sorted SKILL.md paths under <workspace>/skills/*/SKILL.md."""
     skills_dir = Path(workspace_dir) / "skills"
     if not skills_dir.exists():
@@ -33,7 +33,7 @@ def _find_skill_files(workspace_dir: str) -> list[Path]:
     return sorted(skills_dir.glob("*/SKILL.md"))
 
 
-def _parse_frontmatter(text: str) -> dict[str, str]:
+def parse_frontmatter(text: str) -> dict[str, str]:
     """
     Extracts key/value pairs from YAML frontmatter delimited by ---.
     Handles quoted and unquoted string values.
@@ -58,7 +58,7 @@ def get_skills_snapshot_version(workspace_dir: str) -> str:
     Returns "v0" when no skills are present.
     Changes whenever a SKILL.md is added, removed, or modified.
     """
-    files = _find_skill_files(workspace_dir)
+    files = find_skill_files(workspace_dir)
     if not files:
         return "v0"
     h = hashlib.sha256()
@@ -82,7 +82,7 @@ def build_skill_snapshot(workspace_dir: str, version: str) -> SkillsSnapshot:
         </skill>
       </available_skills>
     """
-    files = _find_skill_files(workspace_dir)
+    files = find_skill_files(workspace_dir)
     if not files:
         return SkillsSnapshot(version=version)
 
@@ -91,7 +91,7 @@ def build_skill_snapshot(workspace_dir: str, version: str) -> SkillsSnapshot:
 
     for path in files:
         text = path.read_text(encoding="utf-8")
-        fm = _parse_frontmatter(text)
+        fm = parse_frontmatter(text)
         name = fm.get("name", path.parent.name)
         description = fm.get("description", "")
         skill_names.append(name)

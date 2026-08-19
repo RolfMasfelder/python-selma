@@ -20,7 +20,7 @@ from selma.helper import get_workspace
 from selma.runtime import DeliveryContext
 from selma.runtime import memory_flush as _memory_flush_fn
 from selma.session_store import load_session_store, reset_session, resolve_session_file, save_session_store
-from selma.skills import _find_skill_files, _parse_frontmatter
+from selma.skills import find_skill_files, parse_frontmatter
 from selma.tools import ALL_TOOL_NAMES, get_tool_descriptions
 
 logger = logging.getLogger(__name__)
@@ -166,7 +166,7 @@ class CommandManager:
 
     async def _cmd_compact(self, ctx: NormalizedTurnInput, delivery: DeliveryContext | None = None) -> str:
         session_key = ctx.session_key or "default"
-        store, record = self._get_session_record(session_key)
+        _, record = self._get_session_record(session_key)
         if record is None:
             return "No active session found — nothing to compact."
 
@@ -258,7 +258,7 @@ class CommandManager:
         hb_target = hb.target if hb_every != "off" else "—"
         hb_extra = ""
         if hb_every != "off":
-            flags = []
+            flags: list[str] = []
             if hb.light_context:
                 flags.append("light")
             if hb.isolated_session:
@@ -336,12 +336,12 @@ class CommandManager:
 
     def _cmd_skills(self) -> str:
         workspace_dir = get_workspace(self._cwd)
-        files = _find_skill_files(workspace_dir)
+        files = find_skill_files(workspace_dir)
         if not files:
             return "No skills found."
         lines = [f"**Skills** ({len(files)})", ""]
         for path in files:
-            fm = _parse_frontmatter(path.read_text(encoding="utf-8"))
+            fm = parse_frontmatter(path.read_text(encoding="utf-8"))
             name = fm.get("name", path.parent.name)
             desc = fm.get("description", "")
             lines.append(f"`{name}` — {desc}" if desc else f"`{name}`")
@@ -373,11 +373,11 @@ class CommandManager:
             lines.append("")
 
         workspace_dir = get_workspace(self._cwd)
-        files = _find_skill_files(workspace_dir)
+        files = find_skill_files(workspace_dir)
         if files:
             lines += ["**Skills**", ""]
             for path in files:
-                fm = _parse_frontmatter(path.read_text(encoding="utf-8"))
+                fm = parse_frontmatter(path.read_text(encoding="utf-8"))
                 name = fm.get("name", path.parent.name)
                 desc = fm.get("description", "")
                 lines.append(f"`{name}`")
