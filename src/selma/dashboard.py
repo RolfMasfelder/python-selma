@@ -172,7 +172,11 @@ if st.session_state.processing and st.session_state.pending_prompt:
             full_reply = ""
 
             with httpx.Client() as client:
-                with client.stream("POST", WEBCHAT_STREAM_URL, json=payload, timeout=300.0) as response:
+                # No read timeout: slow (e.g. CPU-only) model inference can take much
+                # longer than a fixed timeout would allow. The gateway's own idle
+                # timeout (selma.json model.timeout_seconds) is the effective bound.
+                stream_timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
+                with client.stream("POST", WEBCHAT_STREAM_URL, json=payload, timeout=stream_timeout) as response:
                     for event in parse_sse_events(response):
                         match event.get("type"):
                             case "tool":

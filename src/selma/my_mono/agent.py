@@ -85,6 +85,9 @@ class AgentOptions(BaseModel):
     system_prompt: str = ""
     thinking_level: ThinkingLevel = None
     ollama_base_url: str = "http://localhost:11434/v1"
+    # HTTP client read timeout and retry count for the underlying AsyncOpenAI client.
+    client_timeout_seconds: float = 3600.0
+    client_max_retries: int = 0
     logging_event_filter: list[str] = Field(default_factory=lambda: ["message_update"])
     convert_to_llm: Callable[[list[AgentMessage]], list[AgentMessage]] = Field(
         default=lambda msgs: msgs,
@@ -114,6 +117,12 @@ class Agent:
         self._client = AsyncOpenAI(
             base_url=options.ollama_base_url,
             api_key="ollama",  # Ollama ignores this, but the SDK requires a value
+            # Default read=600s * max_retries=2 silently turns into a 30min hang on slow
+            # (e.g. CPU-only) Ollama inference. The outer asyncio.wait_for in
+            # execute_prompt() (runtime.py) already enforces config.model.timeout_seconds,
+            # so these are configurable via ModelConfig instead of hardcoded.
+            timeout=options.client_timeout_seconds,
+            max_retries=options.client_max_retries,
         )
         logger.info("Agent initialized | model=%s tools=%s", options.model, [t.name for t in options.tools])
 

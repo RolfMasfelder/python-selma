@@ -48,6 +48,9 @@ class ModelConfig(BaseModel):
     timeout_seconds: int = 60
     thinking: str = "low"
     ollama_base_url: str = "http://localhost:11434/v1"
+    # Retries on the HTTP client are pointless for slow (e.g. CPU-only) inference:
+    # each retry re-waits the full timeout_seconds instead of failing faster.
+    client_max_retries: int = 0
 
 
 # -- Session sub-models ----------------------------

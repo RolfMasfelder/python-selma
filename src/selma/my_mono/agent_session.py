@@ -556,6 +556,8 @@ class CreateSessionOptions(BaseModel):
     tools: list[AgentTool] = Field(default_factory=list)
     thinking_level: Literal["low", "medium", "high"] | None = None
     ollama_base_url: str = "http://localhost:11434/v1"
+    client_timeout_seconds: float = 3600.0
+    client_max_retries: int = 0
     cwd: str = "."
     session_manager: SessionManager | None = None
     continue_session: Path | None = None
@@ -647,6 +649,8 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
             system_prompt=system_prompt,
             thinking_level=options.thinking_level,
             ollama_base_url=options.ollama_base_url,
+            client_timeout_seconds=options.client_timeout_seconds,
+            client_max_retries=options.client_max_retries,
             convert_to_llm=lambda msgs: msgs,  # ← placeholder
         )
     )

@@ -130,7 +130,9 @@ async def process_message_flow_stream(ctx: NormalizedTurnInput):
             if reply:
                 await queue.put({"type": "chunk", "text": reply})
         except Exception as e:
-            await queue.put(f"⚠️ {e}")
+            # Wrapped as a dict (not a bare string) so real streamed model text
+            # can never be mistaken for this internal error signal.
+            await queue.put({"type": "error", "message": str(e)})
         finally:
             await queue.put(None)
 
@@ -149,10 +151,9 @@ async def process_message_flow_stream(ctx: NormalizedTurnInput):
             break
         if isinstance(item, dict):
             yield _sse(item)
+            if item.get("type") == "error":
+                break
             continue
-        if item.startswith("⚠️ "):
-            yield _sse({"type": "error", "message": item})
-            break
         yield _sse({"type": "chunk", "text": item})
 
     yield _sse({"type": "done", "session_key": ctx.session_key})
