@@ -18,6 +18,8 @@ from selma.config import load_config, resolve_timeout
 from selma.data import NormalizedTurnInput, WebChatIn
 from selma.runtime import DeliveryContext, RuntimeEnv
 from selma.runtime import agent_command as run_agent
+from selma.task_manager import shutdown as shutdown_background_tasks
+from selma.task_manager import spawn as spawn_background_task
 from selma.tracing import setup as tracing_setup
 from selma.tracing import tracer
 
@@ -31,31 +33,6 @@ _AGENT_PASSTHROUGH_COMMANDS: set[str] = {"/healthcheck"}
 
 # -- Heartbeat state
 _pending_alerts: asyncio.Queue[str] = asyncio.Queue()
-
-# -- Background task registry: asyncio only holds a weak reference to a task,
-# so a fire-and-forget task with no other referent can be garbage-collected
-# mid-run. Keep a strong reference here for the task's lifetime, and drain
-# the set on shutdown so no task is silently left running or abandoned.
-_background_tasks: set[asyncio.Task] = set()
-
-
-def _on_background_task_done(task: asyncio.Task) -> None:
-    _background_tasks.discard(task)
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc is not None:
-        # The task's own coroutine (e.g. _run() below) already catches and
-        # reports its expected errors; this is only a safety net for anything
-        # that still escapes it, so the same error may be logged twice.
-        logging.error("Background task failed", exc_info=exc)
-
-
-def _spawn_background_task(coro) -> asyncio.Task:
-    task = asyncio.create_task(coro)
-    _background_tasks.add(task)
-    task.add_done_callback(_on_background_task_done)
-    return task
 
 
 @asynccontextmanager
@@ -71,13 +48,9 @@ async def lifespan(app: FastAPI):
         # propagate so real cancellation of the current task isn't masked.
         await hb_task
 
-        # Drain any still-running background tasks (e.g. WebChat stream
-        # handlers) instead of leaving them to be torn down mid-run.
-        pending = list(_background_tasks)
-        for task in pending:
-            task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+        # Covers the WebChat-only case: uvicorn's own ASGI shutdown runs this
+        # lifespan without going through run_gateway()'s outer finally below.
+        await shutdown_background_tasks()
 
 
 api = FastAPI(title="Selma Agent Gateway", lifespan=lifespan)
@@ -169,7 +142,7 @@ async def process_message_flow_stream(ctx: NormalizedTurnInput):
         finally:
             await queue.put(None)
 
-    _spawn_background_task(_run())
+    spawn_background_task(_run())
 
     # Idle timeout per item — resets after each received event.
     # This matches the httpx read-timeout semantics on the client side.
@@ -263,7 +236,12 @@ async def run_gateway():
     logging.info("Gateway logging to %s", log_file.resolve())
 
     tasks = [ch.start(config) for ch in _registry if ch.is_enabled(config)]
-    await asyncio.gather(*tasks)
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        # Covers the Telegram-only case: its channel task runs here, outside
+        # the FastAPI lifespan above, so shutdown must be re-armed on this path too.
+        await shutdown_background_tasks()
 
 
 if __name__ == "__main__":

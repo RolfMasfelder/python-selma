@@ -19,6 +19,7 @@ from selma.agent_session import AgentSession, CreateSessionOptions, create_agent
 from selma.data import NormalizedTurnInput
 from selma.my_system_prompt import BuildSystemPromptOptions, ContextFile, build_system_prompt
 from selma.resource_loader import ResourceLoader
+from selma.task_manager import spawn as spawn_background_task
 
 logger = logging.getLogger(__name__)
 
@@ -247,14 +248,14 @@ class EventSubscriber:
             match event.type:
                 case "message_update":
                     if self._on_chunk and event.payload:
-                        asyncio.create_task(self._on_chunk(event.payload))
+                        spawn_background_task(self._on_chunk(event.payload))
 
                 case "message_end":
                     msg = event.payload
                     if msg and msg.content:
                         self.final_reply = msg.content
                         if self._on_block_reply:
-                            asyncio.create_task(self._on_block_reply(msg.content))
+                            spawn_background_task(self._on_block_reply(msg.content))
 
                 case "tool_start":
                     tc = event.payload

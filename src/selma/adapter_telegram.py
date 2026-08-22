@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from telegram import Update
@@ -6,6 +5,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters
 
 from selma.data import NormalizedTurnInput
 from selma.runtime import DeliveryContext
+from selma.task_manager import spawn as spawn_background_task
 
 
 class TelegramChannel:
@@ -43,7 +43,7 @@ class TelegramChannel:
     def deliver(cls, update: Update) -> DeliveryContext:
         """
         Accumulates tokens via on_partial_reply; sends the complete reply
-        via asyncio.create_task when the agent finishes (on_block_reply_flush).
+        via the central task manager when the agent finishes (on_block_reply_flush).
         Splits at Telegram's 4096-char limit if needed.
         """
         chunks: list[str] = []
@@ -56,7 +56,7 @@ class TelegramChannel:
             if not text:
                 return
             for i in range(0, len(text), cls._MAX_CHARS):
-                asyncio.create_task(update.message.reply_text(text[i : i + cls._MAX_CHARS]))
+                spawn_background_task(update.message.reply_text(text[i : i + cls._MAX_CHARS]))
 
         return DeliveryContext(
             on_partial_reply=on_partial_reply,

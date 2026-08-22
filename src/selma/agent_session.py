@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -31,6 +30,7 @@ from selma.agent import (
 from selma.my_resource_loader import ResourceLoader
 from selma.my_system_prompt import BuildSystemPromptOptions, build_system_prompt
 from selma.my_tools import create_coding_tools
+from selma.task_manager import spawn as spawn_background_task
 from selma.tracing import trace_and_log, tracer
 
 logger = logging.getLogger(__name__)
@@ -472,7 +472,7 @@ class AgentSession:
                 logger,
                 f"AgentSession._build_context: Auto-compaction triggered | tokens_est={token_estimate} threshold={settings.auto_compact_threshold}",
             )
-            asyncio.create_task(self.compact())
+            spawn_background_task(self.compact())
 
         return base_messages
 
