@@ -23,6 +23,15 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, Field
 
+from selma.agent import AgentEvent
+from selma.agent_session import (
+    AgentSession,
+    CreateSessionOptions,
+    create_agent_session,
+)
+from selma.agent_session import (
+    SessionManager as AgentSessionManager,
+)
 from selma.compaction import compact_session
 from selma.config import (
     THINKING_LEVEL_ORDER,
@@ -35,16 +44,6 @@ from selma.config import (
 )
 from selma.delivery import deliver_result
 from selma.helper import get_workspace, now_iso, now_ms
-from selma.my_mono.agent import AgentEvent
-from selma.my_mono.agent_session import (
-    AgentSession,
-    CreateSessionOptions,
-    create_agent_session,
-)
-from selma.my_mono.agent_session import (
-    SessionManager as AgentSessionManager,
-)
-from selma.my_mono.tracing import add_span_infos, trace_and_log, tracer
 from selma.resource_loader import ResourceLoader
 from selma.session_store import (
     SessionRecord,
@@ -68,6 +67,7 @@ from selma.system_prompt import (
     build_agent_user_prompt_prefix,
 )
 from selma.tools import ALL_TOOL_NAMES, create_selma_tools
+from selma.tracing import add_span_infos, trace_and_log, tracer
 
 logger = logging.getLogger(__name__)
 
@@ -420,6 +420,7 @@ async def agent_command(
                 skills_snapshot=skills_snapshot,
                 config=config,
                 bootstrap_mode=bootstrap_mode,
+                is_new_session=is_new_session,
                 abort_signal=abort_signal,
                 delivery=delivery,
                 tools_allow=tools_allow,
@@ -705,6 +706,9 @@ class RunEmbeddedPiAgentOptions(BaseModel):
     skills_snapshot: SkillsSnapshot | None = None
     config: SelmaConfig
     bootstrap_mode: BootstrapMode = "none"
+    # True only for the very first turn of a (new/reset) session — controls
+    # whether the bootstrap user-prompt prefix is injected (see run_embedded_attempt).
+    is_new_session: bool = False
     abort_signal: asyncio.Event | None = None
     delivery: DeliveryContext = DeliveryContext()
     # None = all tools allowed; list = only the named tools
@@ -818,7 +822,7 @@ def _load_context_files(workspace_dir: str) -> list[EmbeddedContextFile]:
     via ResourceLoader and converts them to EmbeddedContextFile objects.
 
     EmbeddedContextFile comes from system_prompt.py.
-    ResourceLoader comes from my_mono/resource_loader.py.
+    ResourceLoader comes from my_resource_loader.py.
     """
     # workspace_dir is <root>/.selma/workspace; ResourceLoader expects the project root.
     cwd = str(Path(workspace_dir).parent.parent)
@@ -1072,8 +1076,11 @@ async def run_embedded_attempt(
         )
     )
 
-    # -- Bootstrap prefix for first user turn
-    bootstrap_prefix = build_agent_user_prompt_prefix(opts.bootstrap_mode)
+    # -- Bootstrap prefix: only for the first turn of a session, otherwise the
+    # model gets nudged into repeating its opening greeting on every turn
+    # instead of continuing the conversation (BOOTSTRAP.md itself is still
+    # available via context_files for the rest of the bootstrap conversation).
+    bootstrap_prefix = build_agent_user_prompt_prefix(opts.bootstrap_mode) if opts.is_new_session else None
     effective_prompt = f"{bootstrap_prefix}\n\n{opts.prompt}" if bootstrap_prefix else opts.prompt
 
     # --Create AgentSession

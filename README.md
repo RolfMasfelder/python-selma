@@ -37,7 +37,8 @@ The primary goal is to deconstruct and understand the underlying architecture of
 
 ```txt
 src/selma/          ← installable "selma" package (the gateway/runtime code)
-    my_mono/         ← low-level agent primitives (Agent, AgentSession, tools, tracing)
+    agent.py, agent_session.py ← low-level agent primitives (Agent, AgentSession)
+    my_tools.py, my_resource_loader.py, my_system_prompt.py ← generic counterparts of tools.py/resource_loader.py/system_prompt.py
 tests/               ← pytest suite + standalone integration scripts (see "Test Scripts" below)
 skills/              ← SKILL.md folders deployed into the workspace by `python -m selma.setup`
 templates/           ← default workspace context files (AGENTS.md, SOUL.md, ...)

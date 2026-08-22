@@ -19,9 +19,9 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from selma.agent_session import CreateSessionOptions, create_agent_session
 from selma.config import SelmaConfig
-from selma.my_mono.agent_session import CreateSessionOptions, create_agent_session
-from selma.my_mono.tracing import trace_and_log
+from selma.tracing import trace_and_log
 
 
 class CompactionResult(BaseModel):

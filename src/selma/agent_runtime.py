@@ -14,10 +14,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from selma.agent import AgentEvent, AgentTool
+from selma.agent_session import AgentSession, CreateSessionOptions, create_agent_session
 from selma.data import NormalizedTurnInput
-from selma.my_mono.agent import AgentEvent, AgentTool
-from selma.my_mono.agent_session import AgentSession, CreateSessionOptions, create_agent_session
-from selma.my_mono.system_prompt import BuildSystemPromptOptions, ContextFile, build_system_prompt
+from selma.my_system_prompt import BuildSystemPromptOptions, ContextFile, build_system_prompt
 from selma.resource_loader import ResourceLoader
 
 logger = logging.getLogger(__name__)
@@ -90,8 +90,7 @@ class RunLaneManager:
 
 class SessionFactory:
     """
-    Cached wrapper around create_agent_session() from my-mono.
-    my-mono remains completely unchanged.
+    Cached wrapper around create_agent_session().
     """
 
     def __init__(self):
@@ -114,8 +113,9 @@ class SessionFactory:
             logger.debug("Session cache hit | session=%s", session_key)
             return session
 
-        # Store session file in the workspace
-        session_file = Path(workspace_dir) / ".my_mono" / "sessions" / f"{session_key}.jsonl"
+        # Sessions live as a sibling of the workspace dir: .selma/sessions/
+        # (workspace_dir is always .../.selma/workspace, see helper.get_workspace()).
+        session_file = Path(workspace_dir).parent / "sessions" / f"{session_key}.jsonl"
         session_file.parent.mkdir(parents=True, exist_ok=True)
 
         logger.info("Session create | session=%s file=%s", session_key, session_file)
@@ -126,7 +126,10 @@ class SessionFactory:
                 system_prompt=system_prompt,
                 tools=tools,
                 cwd=workspace_dir,
-                continue_session=session_file if session_file.exists() else None,
+                # Always pass the deterministic session_file (even if it doesn't
+                # exist yet) so a brand-new session is created under this exact
+                # path/name instead of SessionManager.create()'s random-UUID default.
+                continue_session=session_file,
             )
         )
 

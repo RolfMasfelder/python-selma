@@ -1,6 +1,6 @@
 import logging
 
-from selma.my_mono import tracing
+from selma import tracing
 
 
 def setup_logger(name: str, level: int = logging.DEBUG) -> None:

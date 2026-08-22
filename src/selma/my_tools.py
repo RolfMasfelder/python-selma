@@ -1,5 +1,5 @@
 # ============================================================
-# my_mono/tools.py
+# my_tools.py
 #
 # Python port of packages/coding-agent/src/core/tools/
 # Tools: read, write, edit, ls, grep, find
@@ -15,7 +15,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from selma.my_mono.agent import AgentTool, ToolSchema
+from selma.agent import AgentTool, ToolSchema
 
 # ─── CONSTANTS ───────────────────────────────────────────────
 

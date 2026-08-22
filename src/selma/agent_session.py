@@ -1,5 +1,5 @@
 # ============================================================
-# my_mono/agent_session.py
+# agent_session.py
 # ============================================================
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
-from selma.my_mono.agent import (
+from selma.agent import (
     Agent,
     AgentEvent,
     AgentMessage,
@@ -28,10 +28,10 @@ from selma.my_mono.agent import (
     ToolResultMessage,
     UserMessage,
 )
-from selma.my_mono.resource_loader import ResourceLoader
-from selma.my_mono.system_prompt import BuildSystemPromptOptions, build_system_prompt
-from selma.my_mono.tools import create_coding_tools
-from selma.my_mono.tracing import trace_and_log, tracer
+from selma.my_resource_loader import ResourceLoader
+from selma.my_system_prompt import BuildSystemPromptOptions, build_system_prompt
+from selma.my_tools import create_coding_tools
+from selma.tracing import trace_and_log, tracer
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +183,7 @@ class SessionManager:
                 elif entry.role == "assistant":
                     tool_calls = None
                     if entry.tool_calls:
-                        from selma.my_mono.agent import ToolCallRequest
+                        from selma.agent import ToolCallRequest
 
                         tool_calls = [ToolCallRequest(**tc) for tc in entry.tool_calls]
                     messages.append(
@@ -574,7 +574,7 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
     ├─ 1. SessionManager      → create new JSONL or load existing
     ├─ 2. SettingsManager     → merge global + project-local
     ├─ 3. Resolve model       → option > query Ollama > first available > error
-    ├─ 4. ResourceLoader      → load global AGENTS.md
+    ├─ 4. ResourceLoader      → load global CODING_TOOLS.md
     ├─ 5. Instantiate tools   → create_coding_tools(cwd) or caller-supplied
     ├─ 6. Build system prompt → tool names + context_files
     ├─ 7. Build agent         → bare loop, no context hook yet

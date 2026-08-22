@@ -1,11 +1,11 @@
-from selma.my_mono.tracing import setup
+from selma.tracing import setup
 
 setup()
 
 import asyncio
 
-from selma.my_mono.tracing import tracer
 from selma.runtime import RuntimeEnv, agent_command
+from selma.tracing import tracer
 
 
 @tracer.agent(name="test_skills")

@@ -117,7 +117,7 @@ class CommandManager:
     # ── /models ──────────────────────────────────────────────
 
     async def _cmd_models(self) -> str:
-        from selma.my_mono.agent_session import list_ollama_models
+        from selma.agent_session import list_ollama_models
 
         try:
             models = await list_ollama_models(_OLLAMA_BASE_URL)

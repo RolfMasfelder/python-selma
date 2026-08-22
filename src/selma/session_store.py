@@ -38,7 +38,7 @@ from pydantic import BaseModel, Field
 
 from selma.config import SelmaConfig
 from selma.helper import resolve_state_dir
-from selma.my_mono.tracing import trace_and_log
+from selma.tracing import trace_and_log
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class SessionRecord(BaseModel):
     Corresponds to SessionEntry in OpenClaw (stored in sessions-store.json).
 
     In OpenClaw: ~/.openclaw/agents/<agentId>/sessions/<sessionId>.jsonl
-    Here:        .my_mono/sessions/<session_key>.json
+    Here:        .selma/sessions/<session_key>.json
     """
 
     session_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
@@ -100,7 +100,7 @@ class SessionStore(BaseModel):
     """
 
     sessions: dict[str, SessionRecord] = Field(default_factory=dict)
-    store_path: str = ".my_mono/sessions-store.json"
+    store_path: str = ".selma/sessions-store.json"
 
 
 # ════════════════════════════════════════════════════════════

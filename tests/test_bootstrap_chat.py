@@ -10,7 +10,7 @@
 #   /info  — show current bootstrap mode and session info
 # ============================================================
 
-from selma.my_mono.tracing import setup
+from selma.tracing import setup
 
 setup()
 
@@ -27,8 +27,8 @@ from colorama import init as colorama_init
 from rich.console import Console
 from rich.markdown import Markdown
 
-from selma.my_mono.tracing import tracer
 from selma.runtime import DeliveryContext, RuntimeEnv, agent_command
+from selma.tracing import tracer
 
 _console = Console()
 

@@ -2,7 +2,7 @@
 # tools.py
 #
 # Tool factory for Selma.
-# Contains all coding tools from my_mono/tools.py
+# Contains all coding tools from my_tools.py
 # plus additional tools currently available to Selma.
 #
 # Currently available: web_search, web_fetch, browser
@@ -17,8 +17,8 @@ import trafilatura
 from ddgs import DDGS
 from playwright.sync_api import sync_playwright
 
-from selma.my_mono.agent import AgentTool, ToolSchema
-from selma.my_mono.tools import (
+from selma.agent import AgentTool, ToolSchema
+from selma.my_tools import (
     make_edit_tool,
     make_find_tool,
     make_grep_tool,
@@ -418,6 +418,11 @@ def make_memory_search_tool(cwd: str, config: SelmaConfig | None = None) -> Agen
 
 # ─── PUBLIC API ───────────────────────────────────────────────
 
+# NOTE: kept as a static list (not derived from create_selma_tools()) to avoid
+# instantiating tools with side effects (e.g. memory_search opens/builds the
+# FTS index) just to read their names. A cached singleton per (cwd, config) —
+# similar to memory_index.get_memory_index()'s module-level cache — could
+# later replace this with a dynamically derived, side-effect-free name list.
 ALL_TOOL_NAMES: list[str] = [
     "read",
     "write",
@@ -441,7 +446,7 @@ def get_tool_descriptions() -> dict[str, str]:
 def create_selma_tools(cwd: str, config: SelmaConfig | None = None) -> list[AgentTool]:
     """
     All tools currently available to Selma:
-      - read, write, edit, ls, grep, find  (from my_mono/tools.py)
+      - read, write, edit, ls, grep, find  (from my_tools.py)
       - web_search, web_fetch, browser
       - memory_get, memory_search
     """

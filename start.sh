@@ -57,7 +57,7 @@ else
 fi
 
 echo "Starting gateway (log: $GATEWAY_LOG)..."
-python -m selma.gateway > "$GATEWAY_LOG" 2>&1 &
+python -m selma.gateway &
 GATEWAY_PID=$!
 
 echo "Starting dashboard..."

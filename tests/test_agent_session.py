@@ -1,22 +1,22 @@
-from selma.my_mono.tracing import setup
+from selma.tracing import setup
 
 setup()
 
 import asyncio
 import logging
 
-from selma.my_mono.agent_session import CreateSessionOptions, create_agent_session
-from selma.my_mono.test_helper import setup_logger
-from selma.my_mono.tools import create_read_only_tools
-from selma.my_mono.tracing import tracer
+from selma.agent_session import CreateSessionOptions, create_agent_session
+from selma.my_tools import create_read_only_tools
+from selma.test_helper import setup_logger
+from selma.tracing import tracer
 
 MODEL_NAME = "qwen2.5:7b"
 
 # ─── LOGGING ────────────────────────────────────────────────
 
 logging.basicConfig(level=logging.WARNING)
-setup_logger("selma.my_mono.agent")
-setup_logger("selma.my_mono.agent_session")
+setup_logger("selma.agent")
+setup_logger("selma.agent_session")
 
 
 # ─── MAIN ───────────────────────────────────────────────────

@@ -21,7 +21,7 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
-from selma.my_mono.tracing import trace_and_log
+from selma.tracing import trace_and_log
 
 if TYPE_CHECKING:
     from selma.runtime import AgentCommandResult, DeliveryContext

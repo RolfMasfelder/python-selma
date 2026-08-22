@@ -4,7 +4,7 @@ import logging
 from datetime import date, timedelta
 from pathlib import Path
 
-from selma.my_mono.system_prompt import ContextFile
+from selma.my_system_prompt import ContextFile
 
 logger = logging.getLogger(__name__)
 

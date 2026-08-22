@@ -75,7 +75,7 @@ All of the above live in `src/selma/` and are imported as `selma.<module>` (e.g.
 
 Sessions are keyed by `session_key` and stored in `~/.selma/agents/main/sessions/` (or `.selma/` in cwd, or `$SELMA_STATE_DIR`):
 - `sessions.json` — map of session_key → SessionRecord (model, thinking level, skills snapshot, last interaction)
-- `<session_id>.jsonl` — full transcript, managed by `selma.my_mono.agent_session`
+- `<session_id>.jsonl` — full transcript, managed by `selma.agent_session`
 
 Sessions reset daily at a configured hour or after idle timeout.
 
@@ -107,7 +107,8 @@ Plus: skills snapshots (SKILL.md files, version-hashed and cached in SessionReco
 | `src/selma/compaction.py` | Session compression via LLM summarization |
 | `src/selma/delivery.py` | Output callbacks (on_partial_reply, on_block_reply, on_tool_call) |
 | `src/selma/resource_loader.py` | Workspace context file loading |
-| `src/selma/my_mono/` | Core agent primitives: AgentSession, streaming, tool execution |
+| `src/selma/agent.py`, `agent_session.py` | Core agent primitives: AgentSession, streaming, tool execution |
+| `src/selma/my_tools.py` | Generic coding tools (read/write/edit/ls/grep/find) used by AgentSession |
 
 ### Streaming / Block Chunking
 
@@ -119,12 +120,12 @@ Key settings: `model` (provider/model-id), `channels` (telegram, webchat), `hear
 
 ### Tracing
 
-OpenTelemetry via `selma.my_mono.tracing`. Decorate key async functions with `@tracer.chain()` or `@tracer.agent()`. Phoenix collector on `localhost:6006` (no-op if unavailable).
+OpenTelemetry via `selma.tracing`. Decorate key async functions with `@tracer.chain()` or `@tracer.agent()`. Phoenix collector on `localhost:6006` (no-op if unavailable).
 
 ## Conventions
 
 - All Python comments, docstrings, and Pydantic Field descriptions must be in English.
-- The installable package lives in `src/selma/` (with `src/selma/my_mono/` as its low-level agent-primitives sub-package); tests live in `tests/`.
+- The installable package lives in `src/selma/`; tests live in `tests/`. Files prefixed `my_` (`my_tools.py`, `my_resource_loader.py`, `my_system_prompt.py`) hold the generic, low-level agent primitives, kept apart from Selma-specific modules of the same concern (`tools.py`, `resource_loader.py`, `system_prompt.py`).
 - Use the project's `venv` for every terminal (`source venv/bin/activate`) and run scripts with plain `python`/`pytest`, never `uv`.
 - Async-first: all agent operations use `asyncio`.
 - Pydantic v2 `BaseModel` with `model_config` for serialization settings.

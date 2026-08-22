@@ -1,5 +1,5 @@
 # ============================================================
-# my_mono/agent.py
+# agent.py
 #
 # Agent loop using the OpenAI SDK directly.
 # Works with Ollama's OpenAI-compatible endpoint.
@@ -17,7 +17,7 @@ from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, Field
 
-from selma.my_mono.tracing import add_span_infos, trace_and_log, tracer
+from selma.tracing import add_span_infos, trace_and_log, tracer
 
 logger = logging.getLogger(__name__)
 

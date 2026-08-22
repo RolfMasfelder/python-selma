@@ -10,7 +10,7 @@
 #   /info          — print system prompt + full message history
 # ============================================================
 
-from selma.my_mono.tracing import setup
+from selma.tracing import setup
 
 setup()
 
@@ -23,9 +23,9 @@ import sys
 from colorama import Fore, Style
 from colorama import init as colorama_init
 
-from selma.my_mono.agent_session import AgentSession, CreateSessionOptions, SessionManager, create_agent_session
-from selma.my_mono.tools import create_coding_tools, create_read_only_tools
-from selma.my_mono.tracing import tracer
+from selma.agent_session import AgentSession, CreateSessionOptions, SessionManager, create_agent_session
+from selma.my_tools import create_coding_tools, create_read_only_tools
+from selma.tracing import tracer
 
 colorama_init(autoreset=False)
 
@@ -34,8 +34,8 @@ MODEL_NAME = "qwen3.6:27b"
 # ─── LOGGING ────────────────────────────────────────────────
 
 # logging.basicConfig(level=logging.WARNING)
-# setup_logger("selma.my_mono.agent")
-# setup_logger("selma.my_mono.agent_session")
+# setup_logger("selma.agent")
+# setup_logger("selma.agent_session")
 
 # ─── HELPERS ────────────────────────────────────────────────
 

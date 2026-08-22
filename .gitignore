@@ -11,7 +11,7 @@ uv.lock
 venv
 
 # Config
-.my_mono/sessions/
+.my_mono/
 .selma/
 .pytest_cache/
 
