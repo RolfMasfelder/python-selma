@@ -46,20 +46,21 @@ Selma is an agentic AI gateway that routes user messages from multiple channels 
 
 ### Three-Layer Agent Engine (`src/selma/runtime.py`)
 
-```
+```txt
 Layer 1: agent_command()          — orchestration: who, which model, which session
 Layer 2: run_embedded_pi_agent()  — robustness: retry loop, context overflow, compaction
 Layer 3: run_embedded_attempt()   — execution: build system prompt, create session, invoke tools
 ```
 
 Error classification (`detect_attempt_error`) drives automatic recovery:
+
 - `context_overflow` → compact session → retry (max 3 attempts)
 - `thinking_not_supported` → lower thinking level → retry
 - `aborted` → surface to caller
 
 ### Message Flow
 
-```
+```txt
 User (Telegram / WebChat)
   → gateway.py (FastAPI)
       → CommandManager (/commands)
@@ -74,6 +75,7 @@ All of the above live in `src/selma/` and are imported as `selma.<module>` (e.g.
 ### Session Persistence
 
 Sessions are keyed by `session_key` and stored in `~/.selma/agents/main/sessions/` (or `.selma/` in cwd, or `$SELMA_STATE_DIR`):
+
 - `sessions.json` — map of session_key → SessionRecord (model, thinking level, skills snapshot, last interaction)
 - `<session_id>.jsonl` — full transcript, managed by `selma.agent_session`
 
@@ -89,6 +91,7 @@ Plus: skills snapshots (SKILL.md files, version-hashed and cached in SessionReco
 ### Channel Adapters
 
 `channel_adapter.py` defines the `ChannelAdapter` protocol. Implementations:
+
 - `adapter_webchat.py` — Server-Sent Events streaming via asyncio queue
 - `adapter_telegram.py` — Telegram bot via python-telegram-bot
 

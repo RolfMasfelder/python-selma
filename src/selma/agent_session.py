@@ -10,7 +10,7 @@ import os
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 from openai import AsyncOpenAI
@@ -57,7 +57,7 @@ class MessageEntry(SessionEntryBase):
     type: Literal["message"] = "message"
     role: Literal["user", "assistant", "tool"]
     content: str | None = None
-    tool_calls: list[dict] | None = None  # serialized ToolCallRequests
+    tool_calls: list[dict[str, Any]] | None = None  # serialized ToolCallRequests
     tool_call_id: str | None = None  # only for role="tool"
 
 
@@ -228,7 +228,7 @@ class SessionManager:
 
     def _load(self, path: Path) -> None:
         """Loads an existing JSONL file."""
-        type_map = {
+        type_map: dict[str, type[AnyEntry]] = {
             "session": SessionMetaEntry,
             "message": MessageEntry,
             "compaction": CompactionEntry,

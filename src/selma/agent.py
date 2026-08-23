@@ -14,7 +14,7 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import ChatCompletionAssistantMessageParam, ChatCompletionMessageParam, ChatCompletionToolParam
 from pydantic import BaseModel, Field
 
 from selma.tracing import add_span_infos, trace_and_log, tracer
@@ -69,8 +69,8 @@ ThinkingLevel = Literal["low", "medium", "high"] | None
 
 
 class AgentState(BaseModel):
-    messages: list[AgentMessage] = Field(default_factory=list)
-    tools: list[AgentTool] = Field(default_factory=list)
+    messages: list[AgentMessage] = Field(default_factory=list[AgentMessage])
+    tools: list[AgentTool] = Field(default_factory=list[AgentTool])
     model: str = "llama3.1:8b"
     thinking_level: ThinkingLevel = None
     is_streaming: bool = False
@@ -81,7 +81,7 @@ class AgentState(BaseModel):
 
 class AgentOptions(BaseModel):
     model: str
-    tools: list[AgentTool] = Field(default_factory=list)
+    tools: list[AgentTool] = Field(default_factory=list[AgentTool])
     system_prompt: str = ""
     thinking_level: ThinkingLevel = None
     ollama_base_url: str = "http://localhost:11434/v1"
@@ -128,14 +128,14 @@ class Agent:
 
     # ── Public API ───────────────────────────────────────────
 
-    def prompt(self, message: UserMessage) -> asyncio.Task:
+    def prompt(self, message: UserMessage) -> asyncio.Task[None]:
         if self._state.is_streaming:
             raise RuntimeError("Agent is already running")
         self._state.messages.append(message)
         self._emit("prompt", message)
         return asyncio.create_task(self._run_loop())
 
-    def subscribe(self, listener: Callable[[AgentEvent], None]) -> Callable:
+    def subscribe(self, listener: Callable[[AgentEvent], None]) -> Callable[[], None]:
         self._subscribers.append(listener)
         return lambda: self._subscribers.remove(listener)
 
@@ -176,13 +176,13 @@ class Agent:
                 # {index: {"id": str, "name": str, "arguments": str}}
                 tool_call_accumulators: dict[int, dict[str, str]] = {}
 
-                extra = {}
+                extra: dict[str, Any] = {}
                 if self._state.thinking_level is not None:
                     extra["reasoning_effort"] = self._state.thinking_level
                 stream = await self._client.chat.completions.create(
                     model=self._state.model,
                     messages=openai_messages,
-                    tools=openai_tools or None,
+                    tools=openai_tools,
                     stream=True,
                     **extra,
                 )
@@ -297,7 +297,7 @@ class Agent:
 
     # ── OpenAI Format Helpers ────────────────────────────────
 
-    def _to_openai_tools(self) -> list[dict]:
+    def _to_openai_tools(self) -> list[ChatCompletionToolParam]:
         """Convert AgentTool list to the OpenAI function-calling schema."""
         return [
             {
@@ -323,7 +323,7 @@ class Agent:
                 result.append({"role": "user", "content": msg.content})
 
             elif isinstance(msg, AssistantMessage):
-                entry: dict = {"role": "assistant", "content": msg.content or ""}
+                entry: ChatCompletionAssistantMessageParam = {"role": "assistant", "content": msg.content or ""}
                 if msg.tool_calls:
                     entry["tool_calls"] = [
                         {
