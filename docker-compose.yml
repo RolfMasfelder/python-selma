@@ -1,0 +1,12 @@
+services:
+  ollama:
+    image: ollama/ollama:0.32.15
+    container_name: selma-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  ollama_data:

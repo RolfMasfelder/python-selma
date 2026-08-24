@@ -203,6 +203,7 @@ class Agent:
                             idx = tc_delta.index
                             if idx not in tool_call_accumulators:
                                 tool_call_accumulators[idx] = {"id": "", "name": "", "arguments": ""}
+                                logger.info("LLM requested tool call | index=%d", idx)
                             acc = tool_call_accumulators[idx]
                             if tc_delta.id:
                                 acc["id"] += tc_delta.id
@@ -213,6 +214,13 @@ class Agent:
                                     acc["arguments"] += tc_delta.function.arguments
 
                 self._emit("turn_end")
+                logger.info(
+                    "Turn %d stream ended | tool_call_fragments=%s text_len=%d text_preview=%r",
+                    turn,
+                    tool_call_accumulators,
+                    len("".join(text_parts)),
+                    "".join(text_parts)[:500],
+                )
 
                 # ── No tool calls → response complete ─────
                 if not tool_call_accumulators:
@@ -280,7 +288,10 @@ class Agent:
         tool = next((t for t in self._state.tools if t.name == tc.name), None)
 
         if tool is None:
+            logger.warning("Tool call | name=%s arguments=%s -> unknown tool", tc.name, tc.arguments)
             return f"Error: unknown tool '{tc.name}'"
+
+        logger.info("Tool call | name=%s arguments=%s", tc.name, tc.arguments)
         try:
             if asyncio.iscoroutinefunction(tool.execute):
                 result = await tool.execute(**tc.arguments)
@@ -288,9 +299,11 @@ class Agent:
                 result = await asyncio.to_thread(tool.execute, **tc.arguments)
             result_str = str(result)
             add_span_infos(tool_result_len=len(result_str))
+            logger.info("Tool result | name=%s result=%s", tc.name, result_str[:500])
             return result_str
         except Exception as e:
             add_span_infos(tool_error=str(e))
+            logger.exception("Tool call failed | name=%s arguments=%s", tc.name, tc.arguments)
             return f"Error: {e}"
         finally:
             self._emit("tool_end", tc)

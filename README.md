@@ -120,6 +120,27 @@ Use the format `"provider/model-name"`, e.g.:
 - `"openai/gpt-4o"` — OpenAI API (requires `OPENAI_API_KEY` in `.env`)
 - `"anthropic/claude-sonnet-4-6"` — Anthropic API (requires `ANTHROPIC_API_KEY` in `.env`)
 
+For Ollama, the CPU thread count used for inference (`num_thread`) can only be set
+reliably via a custom Modelfile tag — Selma talks to Ollama through the
+OpenAI-compatible endpoint, which does not forward a per-request `num_thread`
+option to the underlying runner. Create a tagged variant once:
+
+```bash
+cat <<'EOF' > Modelfile
+FROM qwen3.6:27b
+PARAMETER num_thread 16
+EOF
+ollama create qwen3.6-27b-t16 -f Modelfile
+```
+
+Then reference the tag in `selma.json`:
+
+```json
+"model": {
+    "model": "ollama/qwen3.6-27b-t16"
+}
+```
+
 If the Telegram channel is enabled, add the bot token to a `.env` file in the project root:
 
 ```env
