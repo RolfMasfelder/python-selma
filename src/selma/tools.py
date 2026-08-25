@@ -6,6 +6,7 @@
 # plus additional tools currently available to Selma.
 #
 # Currently available: web_search, web_fetch, browser
+#                      memory_get, memory_search
 # ============================================================
 
 from __future__ import annotations
