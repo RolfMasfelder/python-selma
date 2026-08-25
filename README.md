@@ -141,6 +141,20 @@ Then reference the tag in `selma.json`:
 }
 ```
 
+all together, the Modelfile-handling looks like this:
+
+```txt
+cat <<'EOF' > /tmp/Modelfile.qwen16
+FROM qwen3.6:27b
+PARAMETER num_thread 16
+EOF
+docker cp /tmp/Modelfile.qwen16 selma-ollama:/tmp/Modelfile.qwen16
+docker exec selma-ollama ollama create qwen3.6-27b-t16 -f /tmp/Modelfile.qwen16
+docker exec selma-ollama ollama stop qwen3.6:27b 2>/dev/null
+curl -s http://localhost:11434/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"qwen3.6-27b-t16","messages":[{"role":"user","content":"hi"}],"stream":false}' > /tmp/resp3.json
+docker exec selma-ollama ps -eo pid,nlwp,cmd | grep llama-server
+```
+
 If the Telegram channel is enabled, add the bot token to a `.env` file in the project root:
 
 ```env
