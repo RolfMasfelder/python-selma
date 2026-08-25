@@ -21,6 +21,7 @@ from playwright.sync_api import sync_playwright
 from selma.agent import AgentTool, ToolSchema
 from selma.my_tools import (
     make_edit_tool,
+    make_exec_tool,
     make_find_tool,
     make_grep_tool,
     make_ls_tool,
@@ -456,6 +457,7 @@ def create_selma_tools(cwd: str, config: SelmaConfig | None = None) -> list[Agen
         make_read_tool(cwd),
         make_write_tool(cwd),
         make_edit_tool(cwd),
+        make_exec_tool(cwd),
         make_ls_tool(cwd),
         make_grep_tool(cwd),
         make_find_tool(cwd),
