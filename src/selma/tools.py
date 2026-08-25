@@ -428,6 +428,7 @@ ALL_TOOL_NAMES: list[str] = [
     "read",
     "write",
     "edit",
+    "exec",
     "ls",
     "grep",
     "find",

@@ -667,6 +667,90 @@ def make_grep_tool(cwd: str) -> AgentTool:
     )
 
 
+def make_exec_tool(cwd: str) -> AgentTool:
+    """
+    Execute a shell command via bash.
+
+    Parameters:
+      command   (required) — The shell command to run.
+      timeout   (optional, default 60s) — Maximum wall-clock time in seconds.
+      yieldMs   (optional)             — For long-running processes: how many
+                                        milliseconds to wait before returning
+                                        a partial result. When absent the process
+                                        runs until completion or timeout.
+
+    Output is truncated to DEFAULT_MAX_LINES lines or DEFAULT_MAX_BYTES bytes.
+    Mirrors createBashTool() from bash.ts, Python-style.
+    """
+    DEFAULT_EXEC_TIMEOUT = 60  # seconds
+
+    def execute(
+        command: str,
+        timeout: int | None = None,
+        yieldMs: int | None = None,
+        **_,
+    ) -> str:
+        effective_timeout = timeout if timeout is not None else DEFAULT_EXEC_TIMEOUT
+
+        env = os.environ.copy()
+        env["PATH"] = env.get("PATH", "") + ":/usr/local/bin:/opt/homebrew/bin"
+
+        try:
+            result = subprocess.run(
+                ["/bin/bash", "-c", command],
+                capture_output=True,
+                text=True,
+                timeout=effective_timeout,
+                cwd=str(Path(cwd).resolve()),
+                env=env,
+            )
+        except subprocess.TimeoutExpired as e:
+            return (
+                f"Error: command timed out after {effective_timeout}s. "
+                f"Increase the timeout parameter or use a background job with 'nohup'/'&'.\n"
+                f"Partial output:\n{str(e.stdout)[:200] or '(none)'}"
+            )
+        except Exception as e:
+            return f"Error executing command: {e}"
+
+        output = result.stdout + (result.stderr or "")
+
+        # Truncate to limits
+        output = _truncate_head(output, max_lines=DEFAULT_MAX_LINES, max_bytes=DEFAULT_MAX_BYTES)
+
+        suffix = ""
+        if result.returncode != 0:
+            suffix = f"\n\n[Command exited with code {result.returncode}]"
+
+        return output + suffix
+
+    return AgentTool(
+        name="exec",
+        description=(
+            "Execute a shell command via bash. Runs synchronously in the workspace directory. "
+            "Use this to run scripts, install packages, compile code, manage Docker containers, etc."
+        ),
+        parameters=ToolSchema(
+            properties={
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to run",
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Maximum wall-clock time in seconds (default: 60)",
+                },
+                "yieldMs": {
+                    "type": "integer",
+                    "description": "For long-running processes: how many milliseconds to wait before returning a partial result",
+                },
+            },
+            required=["command"],
+        ),
+        execute=execute,
+    )
+
+
 def make_find_tool(cwd: str) -> AgentTool:
     """
     Search for files by glob pattern. Returns paths relative to the search directory.
@@ -760,6 +844,7 @@ def create_coding_tools(cwd: str) -> list[AgentTool]:
         make_read_tool(cwd),
         make_edit_tool(cwd),
         make_write_tool(cwd),
+        make_exec_tool(cwd),
     ]
 
 
@@ -786,6 +871,7 @@ def create_all_tools(cwd: str) -> dict[str, AgentTool]:
         "read": make_read_tool(cwd),
         "edit": make_edit_tool(cwd),
         "write": make_write_tool(cwd),
+        "exec": make_exec_tool(cwd),
         "grep": make_grep_tool(cwd),
         "find": make_find_tool(cwd),
         "ls": make_ls_tool(cwd),
