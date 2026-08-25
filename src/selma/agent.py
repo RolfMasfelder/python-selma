@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 from collections.abc import Callable
@@ -159,7 +160,13 @@ class Agent:
         turn = 0
 
         # Tool schema is static for the entire run
-        openai_tools = self._to_openai_tools()
+        openai_tools: list[ChatCompletionToolParam] = self._to_openai_tools()
+        logger.info(
+            "Turn %d | model=%s tools=%s",
+            turn,
+            self._state.model,
+            ", ".join([t["function"]["name"] for t in openai_tools]),
+        )
 
         try:
             while True:
@@ -293,7 +300,7 @@ class Agent:
 
         logger.info("Tool call | name=%s arguments=%s", tc.name, tc.arguments)
         try:
-            if asyncio.iscoroutinefunction(tool.execute):
+            if inspect.iscoroutinefunction(tool.execute):
                 result = await tool.execute(**tc.arguments)
             else:
                 result = await asyncio.to_thread(tool.execute, **tc.arguments)
