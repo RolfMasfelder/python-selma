@@ -19,7 +19,7 @@ import uuid
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
@@ -109,7 +109,7 @@ class DeliveryContext(BaseModel):
     # Controls how the text stream is split into blocks
     block_reply_chunking: BlockReplyChunkingConfig | None = None
     # Called when the model invokes a tool: (tool_name, arguments)
-    on_tool_call: Callable[[str, dict], None] | None = None
+    on_tool_call: Callable[[str, dict[Any, Any]], None] | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -157,7 +157,7 @@ class AgentCommandResult(BaseModel):
     Corresponds to EmbeddedPiRunResult in OpenClaw.
     """
 
-    payloads: list[RunPayload] = Field(default_factory=list)
+    payloads: list[RunPayload] = Field(default_factory=list[RunPayload])
     meta: AgentRunMeta
 
 
