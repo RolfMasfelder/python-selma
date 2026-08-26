@@ -16,7 +16,7 @@ class ResourceLoader:
 
     def __init__(self, cwd: str | Path = "."):
         self._cwd = Path(cwd)
-        self._coding_tools_md = self._cwd / "CODING_TOOLS.md"
+        self._coding_tools_md = self._cwd / ".selma/workspace/CODING_TOOLS.md"
 
     def load_context_files(self) -> list[ContextFile]:
         """

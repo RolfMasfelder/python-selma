@@ -364,11 +364,15 @@ async def agent_command(
 
     store, session_record, is_new_session, session_file = get_session(session_key, session_id, config, runtime.cwd)
 
-    workspace_dir = get_workspace(runtime.cwd)
+    workspace_dir = (
+        runtime.cwd
+    )  # workspace_dir ist ab sofort immer das aktuelle Arbeitsverzeichnis, nicht das .selma-Verzeichnis
 
-    bootstrap_mode = detect_bootstrap_mode(workspace_dir)  # BOOTSTRAP.md exists → "full" access, missing → "none"
+    bootstrap_mode = detect_bootstrap_mode(
+        get_workspace(runtime.cwd)
+    )  # BOOTSTRAP.md exists → "full" access, missing → "none"
 
-    skills_snapshot = _resolve_skills_snapshot(session_record, workspace_dir, is_new_session)
+    skills_snapshot = _resolve_skills_snapshot(session_record, get_workspace(runtime.cwd), is_new_session)
 
     session_record.updated_at = now_iso()
     save_session_store(store)
@@ -825,8 +829,8 @@ def _load_context_files(workspace_dir: str) -> list[EmbeddedContextFile]:
     ResourceLoader comes from my_resource_loader.py.
     """
     # workspace_dir is <root>/.selma/workspace; ResourceLoader expects the project root.
-    cwd = str(Path(workspace_dir).parent.parent)
-    loader = ResourceLoader(cwd=cwd)
+    # cwd = str(Path(workspace_dir).parent.parent)
+    loader = ResourceLoader(cwd=workspace_dir)
     context_files_raw = loader.load_context_files()
     return [EmbeddedContextFile(path=cf.path, content=cf.content) for cf in context_files_raw]
 
