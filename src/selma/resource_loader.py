@@ -82,7 +82,7 @@ class ResourceLoader:
         Always returns a ContextFile for BOOTSTRAP.md.
         Content is the file text when non-empty, otherwise a [MISSING] marker.
         """
-        path = self._workspace / "BOOTSTRAP.md"
+        path = self._workspace / ".selma" / "workspace" / "BOOTSTRAP.md"
         abs_path = str(path.resolve())
 
         if path.exists():

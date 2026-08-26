@@ -29,7 +29,7 @@ from selma.tracing import tracer
 
 colorama_init(autoreset=False)
 
-MODEL_NAME = "qwen3.6:27b"
+MODEL_NAME = "qwen3.8-27b-t16"
 
 # ─── LOGGING ────────────────────────────────────────────────
 

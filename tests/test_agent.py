@@ -22,7 +22,7 @@ colorama.init()
 logging.basicConfig(level=logging.WARNING)
 setup_logger("selma.agent")
 
-MODEL_NAME = "qwen3.6-27b-t16"
+MODEL_NAME = "qwen3.8-27b-t16"
 
 tools = create_read_only_tools(cwd=".")
 

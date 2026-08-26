@@ -127,31 +127,33 @@ option to the underlying runner. Create a tagged variant once:
 
 ```bash
 cat <<'EOF' > Modelfile
-FROM qwen3.6:27b
+FROM qwen3.8:27b
 PARAMETER num_thread 16
 EOF
-ollama create qwen3.6-27b-t16 -f Modelfile
+ollama create qwen3.8-27b-t16 -f Modelfile
 ```
 
 Then reference the tag in `selma.json`:
 
 ```json
 "model": {
-    "model": "ollama/qwen3.6-27b-t16"
+    "model": "ollama/qwen3.8-27b-t16"
 }
 ```
 
 all together, the Modelfile-handling looks like this:
 
 ```txt
+docker exec selma-ollama ollama pull qwen3.8:27b
+
 cat <<'EOF' > /tmp/Modelfile.qwen16
-FROM qwen3.6:27b
+FROM qwen3.8:27b
 PARAMETER num_thread 16
 EOF
 docker cp /tmp/Modelfile.qwen16 selma-ollama:/tmp/Modelfile.qwen16
-docker exec selma-ollama ollama create qwen3.6-27b-t16 -f /tmp/Modelfile.qwen16
-docker exec selma-ollama ollama stop qwen3.6:27b 2>/dev/null
-curl -s http://localhost:11434/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"qwen3.6-27b-t16","messages":[{"role":"user","content":"hi"}],"stream":false}' > /tmp/resp3.json
+docker exec selma-ollama ollama create qwen3.8-27b-t16 -f /tmp/Modelfile.qwen16
+docker exec selma-ollama ollama stop qwen3.8:27b 2>/dev/null
+curl -s http://localhost:11434/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"qwen3.8-27b-t16","messages":[{"role":"user","content":"hi"}],"stream":false}' > /tmp/resp3.json
 docker exec selma-ollama ps -eo pid,nlwp,cmd | grep llama-server
 ```
 

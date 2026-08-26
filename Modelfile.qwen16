@@ -1,2 +1,4 @@
-FROM qwen3.6:27b
-PARAMETER num_thread 16
+FROM qwen3.8:27b
+PARAMETER
+    num_thread 16
+    num_ctx 32768

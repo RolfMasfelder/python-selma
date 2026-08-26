@@ -84,14 +84,14 @@ def setup(agent_base_dir: str = "."):
             print(f"[green]✔[/green] Created workspace: [cyan]{workspace_dir.name}[/cyan]")
 
         # 3a. Create memory subdirectory + empty MEMORY.md
-        memory_dir = workspace_dir / "memory"
+        memory_dir = workspace_dir / ".selma/workspace/memory"
         memory_dir.mkdir(parents=True, exist_ok=True)
         memory_index = memory_dir / "MEMORY.md"
         if not memory_index.exists():
             memory_index.write_text("# Memory\n", encoding="utf-8")
-            print("[green]✔[/green] Created memory index: [cyan]memory/MEMORY.md[/cyan]")
+            print("[green]✔[/green] Created memory index: [cyan].selma/workspace/memory/MEMORY.md[/cyan]")
         else:
-            print("[yellow]![/yellow] Memory index already exists: [cyan]memory/MEMORY.md[/cyan]")
+            print("[yellow]![/yellow] Memory index already exists: [cyan].selma/workspace/memory/MEMORY.md[/cyan]")
 
         # 4. Handle Template copying
         handle_templates(template_dir, workspace_dir)
