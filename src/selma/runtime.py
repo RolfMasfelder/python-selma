@@ -1103,7 +1103,7 @@ async def run_embedded_attempt(
             system_prompt=system_prompt,
             thinking_level=opts.thinking_level,
             ollama_base_url=opts.config.model.ollama_base_url,
-            client_timeout_seconds=float(opts.config.model.timeout_seconds),
+            client_timeout_seconds=opts.config.model.timeout_seconds,
             client_max_retries=opts.config.model.client_max_retries,
             cwd=opts.workspace_dir,
             session_manager=session_manager,

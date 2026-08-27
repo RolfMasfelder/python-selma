@@ -119,7 +119,7 @@ class MemoryIndex:
         temporal_decay_rate: float = 0.01,
     ):
         self._workspace = Path(workspace_dir).resolve()
-        db_path = self._workspace.parent / "memory.db"
+        db_path = self._workspace / ".selma" / "memory.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = db_path
         self._vector_search = vector_search

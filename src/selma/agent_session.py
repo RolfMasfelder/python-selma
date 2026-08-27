@@ -556,7 +556,7 @@ class CreateSessionOptions(BaseModel):
     tools: list[AgentTool] = Field(default_factory=list)
     thinking_level: Literal["low", "medium", "high"] | None = None
     ollama_base_url: str = "http://localhost:11434/v1"
-    client_timeout_seconds: float = 3600.0
+    client_timeout_seconds: int = 3600
     client_max_retries: int = 0
     cwd: str = "."
     session_manager: SessionManager | None = None

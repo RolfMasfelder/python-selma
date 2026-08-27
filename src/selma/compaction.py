@@ -83,9 +83,11 @@ async def compact_session(
     try:
         session = await create_agent_session(
             CreateSessionOptions(
-                model="",  # read from JSONL
+                model=config.model.model,  # read from JSONL
                 ollama_base_url=config.model.ollama_base_url,
                 continue_session=path,
+                client_timeout_seconds=config.model.timeout_seconds,
+                client_max_retries=config.model.client_max_retries,
             )
         )
     except Exception as e:

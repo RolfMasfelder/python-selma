@@ -44,7 +44,7 @@ class RunParams(BaseModel):
 
     ctx: NormalizedTurnInput
     workspace_dir: str
-    tools: list[AgentTool] = Field(default_factory=list)
+    tools: list[AgentTool] = Field(default_factory=list[AgentTool])
     model: str | None = None
     timeout_ms: int = 120_000
     light_context: bool = False  # True → only HEARTBEAT.md in system prompt
@@ -123,7 +123,7 @@ class SessionFactory:
 
         session = await create_agent_session(
             CreateSessionOptions(
-                model=model,
+                model=model if model else "",  # read from JSONL if not None
                 system_prompt=system_prompt,
                 tools=tools,
                 cwd=workspace_dir,
