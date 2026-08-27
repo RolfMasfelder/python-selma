@@ -424,6 +424,8 @@ class AgentSession:
 
         client = AsyncOpenAI(
             base_url=self._agent._options.ollama_base_url,
+            timeout=self._agent._options.client_timeout_seconds,
+            max_retries=self._agent._options.client_max_retries,
             api_key="ollama",
         )
         openai_messages = self._agent._to_openai_messages(context)
