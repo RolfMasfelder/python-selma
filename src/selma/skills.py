@@ -26,8 +26,8 @@ from selma.session_store import SkillsSnapshot
 
 
 def find_skill_files(workspace_dir: str) -> list[Path]:
-    """Returns sorted SKILL.md paths under <workspace>/skills/*/SKILL.md."""
-    skills_dir = Path(workspace_dir) / "skills"
+    """Returns sorted SKILL.md paths under <workspace>/.selma/workspace/skills/*/SKILL.md."""
+    skills_dir = Path(workspace_dir) / ".selma" / "workspace" / "skills"
     if not skills_dir.exists():
         return []
     return sorted(skills_dir.glob("*/SKILL.md"))
@@ -69,7 +69,7 @@ def get_skills_snapshot_version(workspace_dir: str) -> str:
 
 def build_skill_snapshot(workspace_dir: str, version: str) -> SkillsSnapshot:
     """
-    Scans <workspace>/skills/*/SKILL.md and builds a SkillsSnapshot.
+    Scans <workspace>/.selma/workspace/skills/*/SKILL.md and builds a SkillsSnapshot.
 
     snapshot_text is an XML block injected into the system prompt
     by _build_skills_section() in system_prompt.py:

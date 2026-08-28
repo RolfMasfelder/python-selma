@@ -684,7 +684,7 @@ def build_agent_system_prompt(params: BuildAgentSystemPromptParams) -> str:
         f"Your working directory is: {params.workspace_dir}",
         "Treat this directory as the single global workspace for file operations "
         "unless explicitly instructed otherwise.",
-        "IMPORTANT: Use only simple relative paths for file operations (e.g. `memory/today.md`, "
+        "IMPORTANT: Use only simple relative paths for file operations (e.g. `.selma/workspace/memory/today.md`, "
         "`HEARTBEAT.md`). Do NOT include the workspace path itself in file paths — "
         f"never start a path with `{Path(params.workspace_dir).name}/` or "
         f"`{Path(params.workspace_dir).parent.name}/`. "
