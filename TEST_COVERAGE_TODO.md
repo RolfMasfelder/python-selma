@@ -14,11 +14,11 @@ Start: kleinste Datei zuerst.
 - [x] task_manager.py — 2188 B — 0% → 100% (2026-08-27, tests/unit/test_unit_task_manager.py)
 - [x] tracing.py — 2868 B — 73% → 88% (2026-08-27, tests/unit/test_unit_tracing.py)
 - [x] adapter_telegram.py — 2884 B — 0% → 100% (2026-08-27, tests/unit/test_unit_adapter_telegram.py)
-- [ ] skills.py — 3556 B — 0%
-- [ ] compaction.py — 5148 B — 0%
-- [ ] my_system_prompt.py — 6560 B — 35%
-- [ ] setup.py — 6982 B — 0%
-- [ ] dashboard.py — 7067 B — 0%
+- [x] skills.py — 3556 B — 0% → 100% (2026-08-28, tests/unit/test_unit_skills.py; dabei Test-Fix: erwartete CamelCase-Namen, Code nutzt Frontmatter-Name)
+- [x] compaction.py — 5148 B — 39% → 100% (2026-08-28, tests/unit/test_unit_compaction.py — 5 Tests: fehlende Datei, create_Fehler, zu wenig Messages, compact_Fehler, Erfolg inkl. Token-Zählung)
+- [x] my_system_prompt.py — 6560 B — 35% → 100% (2026-08-28, tests/unit/test_unit_my_system_prompt.py — 10 Tests: Defaults/None, Custom Prompt, Tool-Liste/Merge, alle Guideline-Äste, Guideline-Dedupe, Kontext-Sektion, Helfer)
+- [x] setup.py — 6982 B — 0% → 94% (2026-08-28, tests/unit/test_unit_setup.py — 11 Tests: Config-Struktur, setup fresh/idempotent/fehler, templates 4 Fälle, skills sync/stale/noop; ungedeckt: unerreichbarer 'all-skipped'-Zweig (SKILL.md wird per Definition immer kopiert) + __main__)
+- [x] dashboard.py — 7067 B — 0% → 95% (2026-08-29, tests/unit/test_unit_dashboard.py — 12 Tests: parse_sse_events, read/write_raw_file, App-Rendering Initial/Chat-Erfolg/ConnectError/SSE-Error/Settings-Dialog (Edit/Save/Invalid/Discard)); ungedeckt: unerreichbare Exception-Fall-Branch (json.JSONDecodeError im try/except in settings_dialog wird nie getestet, weil die App vorher bricht)
 - [ ] gateway.py — 8754 B — 0%
 - [ ] config.py — 9521 B — 62%
 - [ ] heartbeat.py — 9764 B — 69%
