@@ -1,0 +1,2 @@
+- Avoid OWASP Top 10 Risks
+- Prefer clean code patterns even when they are more code than the simple solution
