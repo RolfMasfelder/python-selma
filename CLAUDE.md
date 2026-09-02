@@ -135,3 +135,7 @@ OpenTelemetry via `selma.tracing`. Decorate key async functions with `@tracer.ch
 - Tool filtering: `tools_allow` in config controls which tools are injected per session; filter happens at runtime, not at tool creation.
 - Bootstrap mode: if `BOOTSTRAP.md` has content, the first agent turn uses it as a special setup prompt, then clears the file.
 - Lint/format: `ruff` (config in `pyproject.toml`), enforced via `pre-commit`. Run `pre-commit run --all-files` before committing if the hook isn't installed.
+
+## Testing
+
+See `tests/README.md` for details on unit tests, integration tests, and manual live scripts. The goal is to achieve ≥ 80% coverage across all modules in `src/selma/`. See `TEST_COVERAGE_TODO.md` for a prioritized list of files needing additional tests.
