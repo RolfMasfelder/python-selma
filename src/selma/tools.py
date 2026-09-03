@@ -262,14 +262,14 @@ _MEMORY_MAX_LINES = 500
 
 
 def make_memory_get_tool(cwd: str) -> AgentTool:
-    """Read a file from the memory workspace (MEMORY.md or memory/YYYY-MM-DD.md).
+    """Read a file from the memory workspace (.selma/workspace/MEMORY.md or .selma/workspace/memory/YYYY-MM-DD.md).
 
     cwd is the workspace directory itself (e.g. .selma/workspace), not the
     project root. This is consistent with how runtime.py passes workspace_dir
     to create_selma_tools().
     """
 
-    memory_dir = cwd
+    memory_dir = cwd + "/.selma/workspace"
 
     def execute(path: str, from_line: int = 0, lines: int = 0, **_) -> str:
         from pathlib import Path as _Path
@@ -312,7 +312,7 @@ def make_memory_get_tool(cwd: str) -> AgentTool:
             properties={
                 "path": {
                     "type": "string",
-                    "description": "File path relative to workspace, e.g. 'MEMORY.md' or 'memory/2026-05-12.md'",
+                    "description": "File path relative to workspace, e.g. '.selma/workspace/MEMORY.md' or '.selma/workspace/memory/2026-05-12.md'",
                 },
                 "from_line": {
                     "type": "integer",

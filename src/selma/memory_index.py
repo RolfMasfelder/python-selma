@@ -512,6 +512,9 @@ def get_memory_index(
     temporal_decay_rate: float = 0.01,
 ) -> MemoryIndex:
     """Returns a cached MemoryIndex instance for the given workspace."""
+    workspace_dir = (
+        workspace_dir + "/.selma/workspace" if not workspace_dir.endswith("/.selma/workspace") else workspace_dir
+    )
     key = (
         f"{Path(workspace_dir).resolve()}"
         f"|vs={vector_search}|em={embed_model}"
