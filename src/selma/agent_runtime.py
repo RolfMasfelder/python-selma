@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from selma.agent import AgentEvent, AgentTool
 from selma.agent_session import AgentSession, CreateSessionOptions, create_agent_session
 from selma.data import NormalizedTurnInput
+from selma.helper import get_workspace, resolve_state_dir
 from selma.my_system_prompt import BuildSystemPromptOptions, ContextFile, build_system_prompt
 from selma.resource_loader import ResourceLoader
 from selma.task_manager import spawn as spawn_background_task
@@ -114,9 +115,9 @@ class SessionFactory:
             logger.debug("Session cache hit | session=%s", session_key)
             return session
 
-        # Sessions live as a sibling of the workspace dir: .selma/sessions/
-        # (workspace_dir is always .../.selma/workspace, see helper.get_workspace()).
-        session_file = Path(workspace_dir).parent / "sessions" / f"{session_key}.jsonl"
+        # Sessions live in the state dir: <root>/.selma/sessions/
+        # (workspace_dir is the project root; state dir via helper.resolve_state_dir()).
+        session_file = resolve_state_dir(workspace_dir) / "sessions" / f"{session_key}.jsonl"
         session_file.parent.mkdir(parents=True, exist_ok=True)
 
         logger.info("Session create | session=%s file=%s", session_key, session_file)
@@ -191,8 +192,8 @@ class SystemPromptBuilder:
 
         # 4. Context files
         if light_context:
-            # Heartbeat mode: inject only HEARTBEAT.md
-            hb_path = Path(workspace_dir) / "HEARTBEAT.md"
+            # Heartbeat mode: inject only HEARTBEAT.md (lives in the WORKSPACE dir)
+            hb_path = Path(get_workspace(workspace_dir)) / "HEARTBEAT.md"
             if hb_path.exists():
                 content = hb_path.read_text(encoding="utf-8")
                 bootstrap = f"\n\n### HEARTBEAT.md\n{content}"
@@ -202,8 +203,7 @@ class SystemPromptBuilder:
             # Workspace files via ResourceLoader
             # Includes: AGENTS.md, SOUL.md, IDENTITY.md, USER.md, TOOLS.md,
             #           MEMORY.md, daily memory files, HEARTBEAT.md, BOOTSTRAP.md
-            cwd = str(Path(workspace_dir).parent.parent)
-            context_files = ResourceLoader(cwd=cwd).load_context_files()
+            context_files = ResourceLoader(cwd=workspace_dir).load_context_files()
             bootstrap = self._render_context_files(context_files)
 
         prompt = base + safety + runtime + bootstrap

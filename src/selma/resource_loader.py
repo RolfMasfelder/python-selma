@@ -4,6 +4,7 @@ import logging
 from datetime import date, timedelta
 from pathlib import Path
 
+from selma.helper import get_workspace
 from selma.my_system_prompt import ContextFile
 
 logger = logging.getLogger(__name__)
@@ -24,11 +25,14 @@ WORKSPACE_CONTEXT_FILES = [
 class ResourceLoader:
     """
     Loads workspace context files for the system prompt.
-    Reads from <cwd>/.selma/workspace/.
+    Reads from <root>/.selma/workspace/ (via get_workspace, SELMA_STATE_DIR-aware).
+
+    ``cwd`` is the project root (Agent-CWD), the same convention as the rest of
+    the code base (helper.py / skills.py / agent_runtime.py).
     """
 
     def __init__(self, cwd: str | Path = "."):
-        self._workspace = Path(cwd) / ".selma" / "workspace"
+        self._workspace = Path(get_workspace(cwd))
 
     def load_context_files(self) -> list[ContextFile]:
         """
@@ -82,7 +86,7 @@ class ResourceLoader:
         Always returns a ContextFile for BOOTSTRAP.md.
         Content is the file text when non-empty, otherwise a [MISSING] marker.
         """
-        path = self._workspace / ".selma" / "workspace" / "BOOTSTRAP.md"
+        path = self._workspace / "BOOTSTRAP.md"
         abs_path = str(path.resolve())
 
         if path.exists():

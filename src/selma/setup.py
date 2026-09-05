@@ -84,7 +84,7 @@ def setup(agent_base_dir: str = "."):
             print(f"[green]✔[/green] Created workspace: [cyan]{workspace_dir.name}[/cyan]")
 
         # 3a. Create memory subdirectory + empty MEMORY.md
-        memory_dir = workspace_dir / ".selma/workspace/memory"
+        memory_dir = workspace_dir / "memory"
         memory_dir.mkdir(parents=True, exist_ok=True)
         memory_index = memory_dir / "MEMORY.md"
         if not memory_index.exists():

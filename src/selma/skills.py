@@ -4,7 +4,7 @@
 # Skills snapshot for Selma.
 #
 # Skills are stored as Markdown files in the workspace:
-#   <workspace>/skills/<skill-name>/SKILL.md
+#   <state-dir>/workspace/skills/<skill-name>/SKILL.md
 #
 # Each SKILL.md has a YAML frontmatter with at least:
 #   name:        skill identifier
@@ -20,14 +20,21 @@ import hashlib
 import re
 from pathlib import Path
 
+from selma.helper import get_workspace
 from selma.session_store import SkillsSnapshot
 
 # ─── INTERNAL HELPERS ────────────────────────────────────────
 
 
 def find_skill_files(workspace_dir: str) -> list[Path]:
-    """Returns sorted SKILL.md paths under <workspace>/.selma/workspace/skills/*/SKILL.md."""
-    skills_dir = Path(workspace_dir) / ".selma" / "workspace" / "skills"
+    """
+    Returns sorted SKILL.md paths under the workspace skills dir:
+    <state-dir>/workspace/skills/*/SKILL.md.
+
+    ``workspace_dir`` is the project root (Agent-CWD), the same convention
+    as the rest of the code base (helper.py / resource_loader.py).
+    """
+    skills_dir = Path(get_workspace(workspace_dir)) / "skills"
     if not skills_dir.exists():
         return []
     return sorted(skills_dir.glob("*/SKILL.md"))
@@ -57,6 +64,8 @@ def get_skills_snapshot_version(workspace_dir: str) -> str:
     Returns a short SHA-256 hash of all SKILL.md file contents.
     Returns "v0" when no skills are present.
     Changes whenever a SKILL.md is added, removed, or modified.
+
+    ``workspace_dir`` is the project root (Agent-CWD), cf. find_skill_files().
     """
     files = find_skill_files(workspace_dir)
     if not files:
@@ -69,7 +78,10 @@ def get_skills_snapshot_version(workspace_dir: str) -> str:
 
 def build_skill_snapshot(workspace_dir: str, version: str) -> SkillsSnapshot:
     """
-    Scans <workspace>/.selma/workspace/skills/*/SKILL.md and builds a SkillsSnapshot.
+    Scans <state-dir>/workspace/skills/*/SKILL.md and builds a SkillsSnapshot.
+
+    ``workspace_dir`` is the project root (Agent-CWD), the same convention
+    as the rest of the code base (helper.py / resource_loader.py).
 
     snapshot_text is an XML block injected into the system prompt
     by _build_skills_section() in system_prompt.py:

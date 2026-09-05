@@ -121,7 +121,6 @@ class RuntimeEnv(BaseModel):
     """
 
     cwd: str = "."
-    agent_dir: str = ".selma"
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -372,7 +371,8 @@ async def agent_command(
         get_workspace(runtime.cwd)
     )  # BOOTSTRAP.md exists → "full" access, missing → "none"
 
-    skills_snapshot = _resolve_skills_snapshot(session_record, get_workspace(runtime.cwd), is_new_session)
+    # skills.py auflöst intern selbst <root>/.selma/workspace/skills (get_workspace).
+    skills_snapshot = _resolve_skills_snapshot(session_record, workspace_dir, is_new_session)
 
     session_record.updated_at = now_iso()
     save_session_store(store)
@@ -655,7 +655,7 @@ async def repair_context_overflow(
     state.compaction_attempts += 1
     trace_and_log(logger, f"Attempting compaction | run_id={opts.run_id} attempt={state.compaction_attempts}")
 
-    cwd = str(Path(opts.workspace_dir).parent.parent)
+    cwd = opts.workspace_dir  # workspace_dir ist der Projekt-Root (Agent-CWD)
     await memory_flush(opts.session_record.session_key, cwd)
 
     compact_result = await compact_session(
@@ -828,8 +828,7 @@ def _load_context_files(workspace_dir: str) -> list[EmbeddedContextFile]:
     EmbeddedContextFile comes from system_prompt.py.
     ResourceLoader comes from my_resource_loader.py.
     """
-    # workspace_dir is <root>/.selma/workspace; ResourceLoader expects the project root.
-    # cwd = str(Path(workspace_dir).parent.parent)
+    # workspace_dir ist der Projekt-Root; ResourceLoader arbeitet direkt darauf.
     loader = ResourceLoader(cwd=workspace_dir)
     context_files_raw = loader.load_context_files()
     return [EmbeddedContextFile(path=cf.path, content=cf.content) for cf in context_files_raw]

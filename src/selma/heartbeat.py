@@ -25,6 +25,8 @@ from datetime import time as dtime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from selma.helper import get_workspace
+
 logger = logging.getLogger(__name__)
 
 # Tracks when the next heartbeat will fire; None when disabled or not yet started.
@@ -257,8 +259,8 @@ async def heartbeat_loop(
                 logger.debug("Heartbeat skipped: outside active_hours")
                 continue
 
-        # Is HEARTBEAT.md empty?
-        hb_path = Path(workspace_dir) / "HEARTBEAT.md"
+        # Is HEARTBEAT.md empty? (lives in the WORKSPACE dir: <root>/.selma/workspace)
+        hb_path = Path(get_workspace(workspace_dir)) / "HEARTBEAT.md"
         content: str | None = None
         if hb_path.exists():
             content = hb_path.read_text(encoding="utf-8")

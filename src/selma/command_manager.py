@@ -16,7 +16,6 @@ from pathlib import Path
 from selma.compaction import compact_session
 from selma.config import THINKING_LEVELS, SelmaConfig, get_default_model, resolve_thinking_default, resolve_tools_allow
 from selma.data import NormalizedTurnInput
-from selma.helper import get_workspace
 from selma.runtime import DeliveryContext
 from selma.runtime import memory_flush as _memory_flush_fn
 from selma.session_store import load_session_store, reset_session, resolve_session_file, save_session_store
@@ -335,8 +334,8 @@ class CommandManager:
     # ── /skills ──────────────────────────────────────────────
 
     def _cmd_skills(self) -> str:
-        workspace_dir = get_workspace(self._cwd)
-        files = find_skill_files(workspace_dir)
+        # find_skill_files akzeptiert den Projekt-Root und löst intern via get_workspace auf.
+        files = find_skill_files(self._cwd)
         if not files:
             return "No skills found."
         lines = [f"**Skills** ({len(files)})", ""]
@@ -372,8 +371,8 @@ class CommandManager:
             lines.append(f"  {desc}")
             lines.append("")
 
-        workspace_dir = get_workspace(self._cwd)
-        files = find_skill_files(workspace_dir)
+        # find_skill_files akzeptiert den Projekt-Root und löst intern via get_workspace auf.
+        files = find_skill_files(self._cwd)
         if files:
             lines += ["**Skills**", ""]
             for path in files:
