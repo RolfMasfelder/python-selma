@@ -48,8 +48,8 @@ def test_setup_fresh_run_creates_full_tree(tmp_path, capsys):
     workspace = selma_dir / "workspace"
     assert workspace.is_dir()
 
-    # MEMORY.md (setup legt sie unter workspace/.selma/workspace/memory an)
-    memory_index = workspace / ".selma/workspace/memory/MEMORY.md"
+    # MEMORY.md (setup legt sie unter workspace/memory an)
+    memory_index = workspace / "memory/MEMORY.md"
     assert memory_index.exists()
     assert "# Memory" in memory_index.read_text(encoding="utf-8")
 

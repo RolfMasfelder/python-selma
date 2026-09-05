@@ -183,8 +183,8 @@ def test_memory_get_reads_full_file():
         ws = _make_workspace(tmp)
         (ws / "MEMORY.md").write_text("Line1\nLine2\nLine3\n", encoding="utf-8")
 
-        # cwd = workspace dir (as runtime.py passes it)
-        tool = make_memory_get_tool(str(ws))
+        # cwd = project root (as runtime.py passes it)
+        tool = make_memory_get_tool(str(tmp))
         result = tool.execute(path="MEMORY.md")
 
         assert "Line1" in result
@@ -200,7 +200,7 @@ def test_memory_get_line_range():
         ws = _make_workspace(tmp)
         (ws / "MEMORY.md").write_text("Line1\nLine2\nLine3\nLine4\n", encoding="utf-8")
 
-        tool = make_memory_get_tool(str(ws))
+        tool = make_memory_get_tool(str(tmp))
         result = tool.execute(path="MEMORY.md", from_line=2, lines=2)
 
         assert "Line2" in result
@@ -218,7 +218,7 @@ def test_memory_get_daily_file():
         today = date.today().isoformat()
         (ws / "memory" / f"{today}.md").write_text("- Note of the day\n", encoding="utf-8")
 
-        tool = make_memory_get_tool(str(ws))
+        tool = make_memory_get_tool(str(tmp))
         result = tool.execute(path=f"memory/{today}.md")
 
         assert "Note of the day" in result
@@ -229,8 +229,8 @@ def test_memory_get_file_not_found():
     from selma.tools import make_memory_get_tool
 
     with tempfile.TemporaryDirectory() as tmp:
-        ws = _make_workspace(tmp)
-        tool = make_memory_get_tool(str(ws))
+        _make_workspace(tmp)  # nur Seed der Directory-Struktur
+        tool = make_memory_get_tool(str(tmp))
         result = tool.execute(path="not_found.md")
 
         assert "not found" in result.lower() or "error" in result.lower()
@@ -241,8 +241,8 @@ def test_memory_get_blocks_traversal():
     from selma.tools import make_memory_get_tool
 
     with tempfile.TemporaryDirectory() as tmp:
-        ws = _make_workspace(tmp)
-        tool = make_memory_get_tool(str(ws))
+        _make_workspace(tmp)  # nur Seed der Directory-Struktur
+        tool = make_memory_get_tool(str(tmp))
 
         for evil_path in ["../../etc/passwd", "../selma.json", "/etc/hosts"]:
             result = tool.execute(path=evil_path)
@@ -484,7 +484,7 @@ def test_search_tool_returns_formatted_output():
         ws = _make_workspace(tmp)
         (ws / "MEMORY.md").write_text("- Selma is a Python framework\n", encoding="utf-8")
 
-        tool = make_memory_search_tool(str(ws))
+        tool = make_memory_search_tool(str(tmp))
         result = tool.execute(query="Python")
 
         assert "MEMORY.md" in result
@@ -500,7 +500,7 @@ def test_search_tool_no_results_message():
         ws = _make_workspace(tmp)
         (ws / "MEMORY.md").write_text("- Python\n", encoding="utf-8")
 
-        tool = make_memory_search_tool(str(ws))
+        tool = make_memory_search_tool(str(tmp))
         result = tool.execute(query="QuantumPhysics")
 
         assert "No" in result or "no" in result or "kein" in result.lower()
@@ -517,7 +517,7 @@ def test_search_tool_lazy_sync_on_first_call():
         ws = _make_workspace(tmp)
 
         # Create tool — no files yet
-        tool = make_memory_search_tool(str(ws))
+        tool = make_memory_search_tool(str(tmp))
 
         # Write file AFTER tool creation
         (ws / "MEMORY.md").write_text("- Lazy Sync Test\n", encoding="utf-8")
@@ -538,7 +538,7 @@ def test_search_tool_respects_max_results():
             day = (date.today() - timedelta(days=i)).isoformat()
             (ws / "memory" / f"{day}.md").write_text(f"- Python note {i}\n", encoding="utf-8")
 
-        tool = make_memory_search_tool(str(ws))
+        tool = make_memory_search_tool(str(tmp))
         result = tool.execute(query="Python", max_results=2)
 
         # At most 2 matches → at most 1 "---" separator (one less than matches)

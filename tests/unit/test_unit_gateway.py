@@ -40,6 +40,12 @@ _DEFAULT_CONFIG = {
 import os  # noqa: E402
 import tempfile  # noqa: E402
 
+# WICHTIG: SELMA_STATE_DIR ist prozess-global; helper.get_workspace()
+# liest ihn in ALLEN Modulen. Den import-vorherigen Wert merken und nach
+# dem Gateway-Modul wiederherstellen, sonst sehen alle anderen Tests
+# (skills, memory, heartbeat …) diese tmp-Dir als State-Dir und ihre
+# tmp_path-Seeds sind "unsichtbar".
+_PREV_STATE_DIR = os.environ.get("SELMA_STATE_DIR")
 _tmp_state = tempfile.mkdtemp(prefix="gw_test_state_")
 os.environ["SELMA_STATE_DIR"] = _tmp_state
 Path(_tmp_state, "selma.json").write_text(json.dumps(_DEFAULT_CONFIG), encoding="utf-8")
@@ -57,6 +63,28 @@ from selma.gateway import (  # noqa: E402  # noqa: E402  # noqa: E402  # noqa: E
     process_message_flow_stream,
 )
 from selma.runtime import DeliveryContext  # noqa: E402
+
+# SELMA_STATE_DIR war NUR für den Modul-Import oben nötig
+# (gateway.py buildt load_config() + CommandManager bei Import).
+# Jetzt sofort auf den vorherigen Zustand zurücksetzen, damit er keine
+# anderen Testmodule mehr trifft.
+if _PREV_STATE_DIR is None:
+    os.environ.pop("SELMA_STATE_DIR", None)
+else:
+    os.environ["SELMA_STATE_DIR"] = _PREV_STATE_DIR
+
+
+# Fallback: stellt SELMA_STATE_DIR für die Laufzeit der Gateway-Tests her,
+# falls Code-Pfade ihn während der Tests erneut lesen.
+@pytest.fixture(autouse=True)
+def _gateway_state_dir_during_tests():
+    os.environ["SELMA_STATE_DIR"] = _tmp_state
+    yield
+    if _PREV_STATE_DIR is None:
+        os.environ.pop("SELMA_STATE_DIR", None)
+    else:
+        os.environ["SELMA_STATE_DIR"] = _PREV_STATE_DIR
+
 
 # -- Helpers -------------------------------------------------------
 
@@ -295,14 +323,27 @@ class TestProcessMessageFlowStream:
 
     def test_idle_timeout_yields_stream_timeout(self, monkeypatch):
         async def fake_agent(message, **kwargs):
-            await asyncio.sleep(30)  # länger als jede idle-Timeout
+            # Länger als jede idle-Timeout — ohne das würde kein Timeout fallen.
+            await asyncio.sleep(30)
 
-        async def fake_wait_for(fut, timeout=None):
-            return fut if asyncio.isfuture(fut) else await fut
-
-        # wait_for wird nur für queue.get() verwendet → hier erzwingen wir
-        # einen Timeout, ohne 300 s zu warten.
-        async def raising_wait_for(fut, timeout=None):
+        # wait_for wird hier nur für queue.get() verwendet → wir erzwingen
+        # sofort einen Timeout, ohne 300 s zu warten. Der Fake muss dem echten
+        # asyncio.wait_for() im Timeout-Zweig nachempfinden:
+        # (a) die übergebene Koroutine ensure_future()-wrappen (der echte
+        # wait_for macht das) und den Task cancel()en,
+        # (b) sie synchron awaiten (→ CancelledError abfangen), damit die
+        # Coroutine ordentlich zu Ende läuft. Nur fut.close() reicht nicht
+        # (würde nur eine Un-awaited-Warnung erzeugen, die GC-Falle bleibt).
+        # WICHTIG: .cancel() direkt auf der Coroutine ist ein No-Op mit
+        # AttributeError und lässt den Task später im globalen
+        # task_manager-Registry hängen → "different loop" in Folge-Tests.
+        async def raising_wait_for(awaitable, timeout=None):
+            fut = asyncio.ensure_future(awaitable)
+            fut.cancel()
+            try:
+                await fut
+            except asyncio.CancelledError:
+                pass
             raise TimeoutError
 
         monkeypatch.setattr(gateway, "run_agent", fake_agent)
@@ -417,6 +458,13 @@ class TestHandleTelegram:
 
         async def body():
             await handle_telegram(updates, None)
+            # on_block_reply_flush versendet den Reply via task_manager.spawn
+            # (Fire-and-forget). Der Task braucht mindestens eine Loop-Umdrehung,
+            # bevor shutdown() ihn als pending findet — sonst cancel()t shutdown
+            # ihn noch vor der ersten Ausführung und die Reply geht verloren.
+            # (In Produktion passiert genau dies implizit durch weiteren
+            # Event-Loop-Traffic.)
+            await asyncio.sleep(0)
             await task_manager.shutdown()
 
         run(body())
@@ -508,7 +556,6 @@ class TestLifespan:
         async def fake_heartbeat_loop(config, cwd, queue):
             nonlocal started
             started += 1
-            print(f"[test] fake_heartbeat_loop started (every={getattr(config.heartbeat, 'every', '?')})", flush=True)
             await asyncio.Event().wait()  # läuft, bis gecancelt
 
         monkeypatch.setattr("selma.heartbeat.heartbeat_loop", fake_heartbeat_loop)
@@ -516,7 +563,12 @@ class TestLifespan:
         async def body():
             with contextlib.suppress(asyncio.CancelledError):
                 async with gateway.lifespan(gateway.api):
-                    pass
+                    # Wichtig: ohne einen await-Zwischenstopp bekommt der
+                    # heartbeat-Task (create_task) gar keine Chance zu starten —
+                    # cancel() vor der ersten Callback-Ausführung lässt die
+                    # Koroutine in Python 3.11+ nie laufen. Ein kurzer Sleep
+                    # entspricht dem echten Betrieb (API läuft weiter).
+                    await asyncio.sleep(0.01)
 
         run(body())
         assert started == 1

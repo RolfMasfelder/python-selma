@@ -11,7 +11,7 @@ Start: kleinste Datei zuerst.
 - [x] my_resource_loader.py — 1128 B — 0%/50% → 100% (2026-08-27, tests/unit/test_unit_my_resource_loader.py)
 - [x] adapter_webchat.py — 1713 B — 0% → 100% (2026-08-27, tests/unit/test_unit_adapter_webchat.py)
 - [x] delivery.py — 1754 B — 0%/41% → 100% (2026-08-27, tests/unit/test_unit_delivery.py)
-- [x] task_manager.py — 2188 B — 0% → 100% (2026-08-27, tests/unit/test_unit_task_manager.py)
+- [x] task_manager.py — 2188 B — 0% → 91% (2026-08-27, tests/unit/test_unit_task_manager.py; 2026-09-01: Cross-Loop-Fix in shutdown() + tests/integration/test_integration_task_manager.py, 7 Tests)
 - [x] tracing.py — 2868 B — 73% → 88% (2026-08-27, tests/unit/test_unit_tracing.py)
 - [x] adapter_telegram.py — 2884 B — 0% → 100% (2026-08-27, tests/unit/test_unit_adapter_telegram.py)
 - [x] skills.py — 3556 B — 0% → 100% (2026-08-28, tests/unit/test_unit_skills.py; dabei Test-Fix: erwartete CamelCase-Namen, Code nutzt Frontmatter-Name)
@@ -19,10 +19,10 @@ Start: kleinste Datei zuerst.
 - [x] my_system_prompt.py — 6560 B — 35% → 100% (2026-08-28, tests/unit/test_unit_my_system_prompt.py — 10 Tests: Defaults/None, Custom Prompt, Tool-Liste/Merge, alle Guideline-Äste, Guideline-Dedupe, Kontext-Sektion, Helfer)
 - [x] setup.py — 6982 B — 0% → 94% (2026-08-28, tests/unit/test_unit_setup.py — 11 Tests: Config-Struktur, setup fresh/idempotent/fehler, templates 4 Fälle, skills sync/stale/noop; ungedeckt: unerreichbarer 'all-skipped'-Zweig (SKILL.md wird per Definition immer kopiert) + __main__)
 - [x] dashboard.py — 7067 B — 0% → 95% (2026-08-29, tests/unit/test_unit_dashboard.py — 12 Tests: parse_sse_events, read/write_raw_file, App-Rendering Initial/Chat-Erfolg/ConnectError/SSE-Error/Settings-Dialog (Edit/Save/Invalid/Discard)); ungedeckt: unerreichbare Exception-Fall-Branch (json.JSONDecodeError im try/except in settings_dialog wird nie getestet, weil die App vorher bricht)
-- [ ] gateway.py — 8754 B — 0%
-- [ ] config.py — 9521 B — 62%
-- [ ] heartbeat.py — 9764 B — 69%
-- [ ] agent_runtime.py — 13289 B — 0%
+- [x] gateway.py — 8754 B — 0% → 97% (2026-09-01: Unit-Tests bestanden; Cross-Loop-Kontamination fixiert, raising-wait_for-Test-Fake korrigiert (ensure_future statt cancel-auf-Coroutine); ungedeckt: 53, 248-251)
+- [x] config.py — 9521 B — 62% → 99% (2026-09-01, tests/unit/test_unit_config.py — 22 Tests: Model-Defaults, toolsAllow-Validator, is_channel_enabled, TELEGRAM_TOKEN-Env, load_config (Parsing/fehlt/invalid-JSON/RuntimeError/Cache-Hit/Cache-Expiry), get_default_model, resolve_timeout/tools_allow/thinking_default)
+- [x] heartbeat.py — 9764 B — 69% → 100%
+- [x] agent_runtime.py — 13289 B — 0% → 100% (2026-09-03, tests/unit/test_unit_agent_runtime.py — 32 Tests: RunResult/RunParams-Defaults + Serialization, RunLaneManager (Lock/Active-Done/Cross-Key), SessionFactory (Cache-Hit/Invalidate/Idempotent), SystemPromptBuilder (light HEARTBEAT.md + Safety + Runtime, full ResourceLoader + Truncation 20k), EventSubscriber (message_update/message_end/tool_*/agent_end), RunOrchestrator (ok/timeout/error/Cross-Lane/Sequential); Stolpersteine: message_end muss WÄHREND prompt() gesendet werden (Orchestrator liest final_reply nach prompt-Return), build_system_prompt() wird positionell mit BuildSystemPromptOptions aufgerufen (call_args.args[0]), timeout_ms über **kw, nicht als Named-Param im Helper)
 - [ ] agent.py — 15286 B — 38%
 - [ ] tools.py — 16238 B — 42%
 - [ ] command_manager.py — 17211 B — 0%

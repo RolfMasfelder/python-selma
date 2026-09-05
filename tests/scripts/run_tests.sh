@@ -29,7 +29,7 @@ if [ "${1:-}" = "-x" ]; then
   EXTRA_ARGS+=("--exitfirst")
 fi
 
-python -m pytest tests/unit \
+python -m pytest tests/unit tests/integration \
   --cov=selma \
   --cov-report=term-missing \
   "${EXTRA_ARGS[@]}"
