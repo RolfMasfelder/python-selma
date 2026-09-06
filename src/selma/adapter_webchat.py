@@ -1,7 +1,9 @@
 import asyncio
 import logging
 from datetime import datetime
+from typing import Any
 
+from selma.config import SelmaConfig
 from selma.data import NormalizedTurnInput
 from selma.runtime import DeliveryContext
 
@@ -10,7 +12,7 @@ class WebChatChannel:
     name = "webchat"
 
     @classmethod
-    def normalize(cls, raw_data: dict) -> NormalizedTurnInput:
+    def normalize(cls, raw_data: dict[str, Any]) -> NormalizedTurnInput:
         user_id = raw_data.get("user_id", "anonymous")
         text = raw_data.get("text", "")
         user_name = raw_data.get("user_name", "Web User")
@@ -26,7 +28,7 @@ class WebChatChannel:
         )
 
     @classmethod
-    def deliver(cls, queue: asyncio.Queue) -> DeliveryContext:
+    def deliver(cls, queue: asyncio.Queue[Any]) -> DeliveryContext:
         """
         Text chunks and tool events are pushed into the queue for the SSE generator.
         """
@@ -34,15 +36,15 @@ class WebChatChannel:
         def on_partial_reply(text: str) -> None:
             queue.put_nowait(text)
 
-        def on_tool_call(tool_name: str, args: dict) -> None:
+        def on_tool_call(tool_name: str, args: dict[str, Any]) -> None:
             queue.put_nowait({"type": "tool", "name": tool_name})
 
         return DeliveryContext(on_partial_reply=on_partial_reply, on_tool_call=on_tool_call)
 
-    def is_enabled(self, config) -> bool:
+    def is_enabled(self, config: SelmaConfig) -> bool:
         return config.is_channel_enabled("webchat")
 
-    async def start(self, config) -> None:
+    async def start(self, config: SelmaConfig) -> None:
         import uvicorn
 
         from selma.gateway import api

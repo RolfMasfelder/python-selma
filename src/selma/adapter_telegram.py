@@ -3,6 +3,7 @@ import logging
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters
 
+from selma.config import SelmaConfig
 from selma.data import NormalizedTurnInput
 from selma.runtime import DeliveryContext
 from selma.task_manager import spawn as spawn_background_task
@@ -20,6 +21,10 @@ class TelegramChannel:
 
         if not msg:
             raise ValueError("No message found in update")
+        if not chat:
+            raise ValueError("No chat found in update")
+        if not user:
+            raise ValueError("No user found in update")
 
         is_group = chat.type in ["group", "supergroup", "channel"]
         clean_id = str(chat.id).replace("-100", "")
@@ -53,7 +58,7 @@ class TelegramChannel:
 
         def on_block_reply_flush() -> None:
             text = "".join(chunks).strip()
-            if not text:
+            if not text or not update.message:
                 return
             for i in range(0, len(text), cls._MAX_CHARS):
                 spawn_background_task(update.message.reply_text(text[i : i + cls._MAX_CHARS]))
@@ -63,10 +68,10 @@ class TelegramChannel:
             on_block_reply_flush=on_block_reply_flush,
         )
 
-    def is_enabled(self, config) -> bool:
+    def is_enabled(self, config: SelmaConfig) -> bool:
         return config.is_channel_enabled("telegram")
 
-    async def start(self, config) -> None:
+    async def start(self, config: SelmaConfig) -> None:
         from selma.gateway import handle_telegram
 
         token = config.get_telegram_token()
@@ -79,4 +84,5 @@ class TelegramChannel:
         await tg_app.initialize()
         await tg_app.start()
         logging.info("🚀 Telegram channel active.")
-        await tg_app.updater.start_polling()
+        if tg_app.updater:
+            await tg_app.updater.start_polling()
