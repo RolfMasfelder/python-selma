@@ -7,13 +7,16 @@
 # ============================================================
 
 import typing
+from typing import Any
+
+import pytest
 
 from selma import channel_adapter, data
 
-# ── data.py ──────────────────────────────────────────────
+# ── data.py ─────────────────────────────
 
 
-def test_webchatin_defaults_and_values():
+def test_webchatin_defaults_and_values() -> None:
     msg = data.WebChatIn(user_id="u1", text="hallo")
     assert msg.user_id == "u1"
     assert msg.text == "hallo"
@@ -23,7 +26,7 @@ def test_webchatin_defaults_and_values():
     assert msg2.user_name == "Rolf"
 
 
-def test_normalized_turn_input_defaults_all_none():
+def test_normalized_turn_input_defaults_all_none() -> None:
     nti = data.NormalizedTurnInput()
     assert nti.id is None
     assert nti.timestamp is None
@@ -34,7 +37,7 @@ def test_normalized_turn_input_defaults_all_none():
     assert nti.session_key is None
 
 
-def test_normalized_turn_input_full_and_dump():
+def test_normalized_turn_input_full_and_dump() -> None:
     nti = data.NormalizedTurnInput(
         id="t1",
         timestamp=123,
@@ -51,7 +54,7 @@ def test_normalized_turn_input_full_and_dump():
     assert dumped["body"] == "raw text"
 
 
-def test_normalized_turn_input_pretty_print(capsys):
+def test_normalized_turn_input_pretty_print(capsys: pytest.CaptureFixture[str]) -> None:
     nti = data.NormalizedTurnInput(id="t1", body="test")
     data.NormalizedTurnInput.pretty_print(nti)
     out = capsys.readouterr().out
@@ -64,58 +67,58 @@ def test_normalized_turn_input_pretty_print(capsys):
 # ── channel_adapter.py ───────────────────────────────────
 
 
-def test_protocol_is_runtime_checkable():
+def test_protocol_is_runtime_checkable() -> None:
     # @runtime_checkable setzt _is_runtime_protocol auf der Protokollklasse
     assert getattr(channel_adapter.ChannelAdapter, "_is_runtime_protocol", False) is True
 
 
-def _make_fake_adapter_instance():
+def _make_fake_adapter_instance() -> channel_adapter.ChannelAdapter:
     """Duck-typed Klasse, die alle Protocol-Mitglieder (Signatur) erfüllt."""
 
     class FakeAdapter:
         name = "fake"
 
         @classmethod
-        def normalize(cls, raw):
+        def normalize(cls, raw: Any) -> data.NormalizedTurnInput:
             return data.NormalizedTurnInput()
 
         @classmethod
-        def deliver(cls, context):
+        def deliver(cls, context: Any) -> None:
             return None
 
-        def is_enabled(self, config):
+        def is_enabled(self, config: Any) -> bool:
             return True
 
-        async def start(self, config):
+        async def start(self, config: Any) -> None:
             return None
 
-    return FakeAdapter()
+    return typing.cast(channel_adapter.ChannelAdapter, FakeAdapter())
 
 
-def test_fake_adapter_satisfies_protocol():
+def test_fake_adapter_satisfies_protocol() -> None:
     # runtime_checkable prüft nur Vorhandensein + Signatur der Methoden
     # (Rückgabetypen werden nicht validiert)
     assert isinstance(_make_fake_adapter_instance(), channel_adapter.ChannelAdapter)
 
 
-def test_incomplete_protocol_violation():
+def test_incomplete_protocol_violation() -> None:
     """Fehlende Methode (is_enabled) muss bei isinstance prüfen scheitern."""
 
     class Incomplete:
         name = "x"
 
         @classmethod
-        def normalize(cls, raw): ...
+        def normalize(cls, raw: Any) -> data.NormalizedTurnInput: ...
 
         @classmethod
-        def deliver(cls, context): ...
+        def deliver(cls, context: Any) -> None: ...
 
-        async def start(self, config): ...
+        async def start(self, config: Any) -> None: ...
 
     assert not isinstance(Incomplete(), channel_adapter.ChannelAdapter)
 
 
-def test_protocol_annotations_present():
+def test_protocol_annotations_present() -> None:
     """Die dokumentierte Signatur existiert als Annotation/Member."""
     for member in ("normalize", "deliver", "is_enabled", "start"):
         assert hasattr(channel_adapter.ChannelAdapter, member), member

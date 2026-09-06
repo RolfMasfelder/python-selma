@@ -9,14 +9,24 @@
 import asyncio
 import sys
 import types
+from typing import Any, cast
+
+import pytest
 
 from selma.adapter_webchat import WebChatChannel
+from selma.config import SelmaConfig
 from selma.runtime import DeliveryContext
+
+
+def _as_config(fake: object) -> SelmaConfig:
+    # Duck-Type-Double für SelmaConfig, kein echtes Pydantic-Modell
+    return cast(SelmaConfig, fake)
+
 
 # ── normalize ────────────────────────────────────────────
 
 
-def test_normalize_defaults():
+def test_normalize_defaults() -> None:
     nti = WebChatChannel.normalize({})
     assert nti.id == "anonymous"
     assert nti.body == ""
@@ -27,8 +37,8 @@ def test_normalize_defaults():
     assert nti.raw == {}
 
 
-def test_normalize_explicit_values():
-    raw = {"user_id": "u42", "text": "  hey  ", "user_name": "Rolf"}
+def test_normalize_explicit_values() -> None:
+    raw: dict[str, Any] = {"user_id": "u42", "text": "  hey  ", "user_name": "Rolf"}
     nti = WebChatChannel.normalize(raw)
     assert nti.id == "u42"
     assert nti.body == "  hey  "
@@ -41,10 +51,12 @@ def test_normalize_explicit_values():
 # ── deliver ──────────────────────────────────────────────
 
 
-def test_deliver_pushes_chunks_into_queue():
-    queue: asyncio.Queue = asyncio.Queue()
+def test_deliver_pushes_chunks_into_queue() -> None:
+    queue: asyncio.Queue[Any] = asyncio.Queue()
     ctx = WebChatChannel.deliver(queue)
     assert isinstance(ctx, DeliveryContext)
+    assert ctx.on_partial_reply is not None
+    assert ctx.on_tool_call is not None
 
     ctx.on_partial_reply("hallo")
     ctx.on_tool_call("exec", {"command": "ls"})
@@ -58,42 +70,42 @@ def test_deliver_pushes_chunks_into_queue():
 # ── is_enabled / name ────────────────────────────────────
 
 
-def test_name_is_webchat():
+def test_name_is_webchat() -> None:
     assert WebChatChannel.name == "webchat"
 
 
-def test_is_enabled_delegates_to_config():
+def test_is_enabled_delegates_to_config() -> None:
     class FakeConfig:
         def is_channel_enabled(self, name: str) -> bool:
             return name == "webchat"
 
     ch = WebChatChannel()
-    assert ch.is_enabled(FakeConfig()) is True
+    assert ch.is_enabled(_as_config(FakeConfig())) is True
 
     class OtherConfig:
         def is_channel_enabled(self, name: str) -> bool:
             return False
 
-    assert ch.is_enabled(OtherConfig()) is False
+    assert ch.is_enabled(_as_config(OtherConfig())) is False
 
 
 # ── start ────────────────────────────────────────────────
 
 
-def test_start_boots_uvicorn_on_configured_channel(monkeypatch):
+def test_start_boots_uvicorn_on_configured_channel(monkeypatch: pytest.MonkeyPatch) -> None:
     """start() importiert uvicorn + gateway und startet den Server.
 
     Mit Fake-uvicorn wird nur der Aufrufpfad verifiziert,
     ohne echten Port zu belegen.
     """
-    served = {}
+    served: dict[str, Any] = {}
     serve_called = False
 
     class FakeServer:
-        def __init__(self, config):
+        def __init__(self, config: "FakeConfig") -> None:
             self.config = config
 
-        async def serve(self):
+        async def serve(self) -> None:
             nonlocal serve_called
             serve_called = True
             served["host"] = self.config.host
@@ -101,15 +113,15 @@ def test_start_boots_uvicorn_on_configured_channel(monkeypatch):
             served["log_level"] = self.config.log_level
 
     class FakeConfig:
-        def __init__(self, app, host, port, log_level):
+        def __init__(self, app: object, host: str, port: int, log_level: str) -> None:
             self.app = app
             self.host = host
             self.port = port
             self.log_level = log_level
 
     fake_uvicorn = types.ModuleType("uvicorn")
-    fake_uvicorn.Config = FakeConfig
-    fake_uvicorn.Server = FakeServer
+    fake_uvicorn.Config = FakeConfig  # type: ignore[attr-defined]
+    fake_uvicorn.Server = FakeServer  # type: ignore[attr-defined]
 
     ch = WebChatChannel()
 
@@ -122,9 +134,9 @@ def test_start_boots_uvicorn_on_configured_channel(monkeypatch):
 
     loop = asyncio.new_event_loop()
 
-    async def run():
+    async def run() -> None:
         monkeypatch.setitem(sys.modules, "uvicorn", fake_uvicorn)
-        await ch.start(ChConfig())
+        await ch.start(_as_config(ChConfig()))
 
     loop.run_until_complete(run())
     loop.close()

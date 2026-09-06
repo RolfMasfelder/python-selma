@@ -58,7 +58,7 @@ class ModelConfig(BaseModel):
 
 class SessionResetConfig(BaseModel):
     at_hour: int = 4  # Daily reset hour (local time)
-    idle_minutes: int | None = None  # None = disabled
+    idle_minutes: int | None = None  # None means disabled
 
 
 class SessionConfig(BaseModel):

@@ -10,35 +10,38 @@
 import asyncio
 import datetime
 import types
+from typing import Any, cast
 from unittest import mock
 
 import pytest
+from telegram import Update
 
 from selma.adapter_telegram import TelegramChannel
+from selma.config import SelmaConfig
 from selma.runtime import DeliveryContext
 
 # ── Minimal-Fakes aus dem telegram-Package ──────────────
 
 
 class FakeMessage:
-    def __init__(self, text=None, caption=None, message_id=7):
+    def __init__(self, text: str | None = None, caption: str | None = None, message_id: int = 7) -> None:
         self.text = text
         self.caption = caption
         self.message_id = message_id
         self.date = datetime.datetime.now(datetime.UTC)
 
-    async def reply_text(self, text):
+    async def reply_text(self, text: str) -> None:
         pass
 
 
 class FakeChat:
-    def __init__(self, id=-100123, type="supergroup"):
+    def __init__(self, id: int = -100123, type: str = "supergroup") -> None:
         self.id = id
         self.type = type
 
 
 class FakeUser:
-    def __init__(self, first_name="Rolf"):
+    def __init__(self, first_name: str = "Rolf") -> None:
         self.first_name = first_name
 
 
@@ -47,60 +50,74 @@ class FakeBot:
 
 
 class FakeUpdate:
-    def __init__(self, text=None, chat_id=-100123, chat_type="supergroup"):
-        self.effective_message = FakeMessage(text=text)
+    def __init__(self, text: str | None = None, chat_id: int = -100123, chat_type: str = "supergroup") -> None:
+        self.effective_message: FakeMessage | None = FakeMessage(text=text)
         self.message = self.effective_message
         self.effective_chat = FakeChat(id=chat_id, type=chat_type)
         self.effective_user = FakeUser()
 
-    def get_bot(self):
+    def get_bot(self) -> FakeBot:
         return FakeBot()
+
+
+def _as_update(fake: FakeUpdate) -> Update:
+    # FakeUpdate ist ein Duck-Type-Double für Update, kein echtes telegram-Objekt
+    return cast(Update, fake)
+
+
+def _as_config(fake: object) -> SelmaConfig:
+    # Duck-Type-Double für SelmaConfig, kein echtes Pydantic-Modell
+    return cast(SelmaConfig, fake)
 
 
 # ── normalize ────────────────────────────────────────────
 
 
-def test_normalize_group_message():
+def test_normalize_group_message() -> None:
     upd = FakeUpdate(text="hallo @SelmaBot")
-    nti = TelegramChannel.normalize(upd)
+    nti = TelegramChannel.normalize(_as_update(upd))
     assert nti.id == "7"
     assert nti.body == "hallo @SelmaBot"
     assert nti.body_for_agent == "[Rolf]: hallo @SelmaBot"
     assert nti.body_for_commands == "hallo"  # Bot-Handle entfernt
     assert nti.session_key == "telegram:group:123"  # -100 prefixed, id gereinigt
+    assert nti.timestamp is not None
     assert nti.timestamp > 0
     assert nti.raw is upd
 
 
-def test_normalize_private_chat():
+def test_normalize_private_chat() -> None:
     upd = FakeUpdate(text="hi", chat_id=42, chat_type="private")
-    nti = TelegramChannel.normalize(upd)
+    nti = TelegramChannel.normalize(_as_update(upd))
     assert nti.session_key == "telegram:42"  # kein group-Prefix
     assert nti.body_for_agent == "[Rolf]: hi"
 
 
-def test_normalize_caption_fallback():
+def test_normalize_caption_fallback() -> None:
     upd = FakeUpdate(text=None, chat_id=42, chat_type="private")
+    assert upd.effective_message is not None
     upd.effective_message.caption = "Bildunterschrift"
-    nti = TelegramChannel.normalize(upd)
+    nti = TelegramChannel.normalize(_as_update(upd))
     assert nti.body == "Bildunterschrift"
 
 
-def test_normalize_raises_without_message():
+def test_normalize_raises_without_message() -> None:
     upd = FakeUpdate()
     upd.effective_message = None
     with pytest.raises(ValueError, match="No message"):
-        TelegramChannel.normalize(upd)
+        TelegramChannel.normalize(_as_update(upd))
 
 
 # ── deliver ──────────────────────────────────────────────
 
 
-def test_deliver_accumulates_and_splits_at_max_chars():
+def test_deliver_accumulates_and_splits_at_max_chars() -> None:
     upd = FakeUpdate(text="ping")
-    ctx = TelegramChannel.deliver(upd)
+    ctx = TelegramChannel.deliver(_as_update(upd))
 
     assert isinstance(ctx, DeliveryContext)
+    assert ctx.on_partial_reply is not None
+    assert ctx.on_block_reply_flush is not None
     ctx.on_partial_reply("ABCDEFGHIJ")
     ctx.on_partial_reply("KLMN")
 
@@ -112,11 +129,11 @@ def test_deliver_accumulates_and_splits_at_max_chars():
         ctx.on_block_reply_flush()
         assert spawn.call_count == 2
 
-        def _text_of(coroutine) -> str:
+        def _text_of(coroutine: types.CoroutineType[Any, Any, Any]) -> str:
             # reply_text(text) ist async → Argument aus dem Coroutine-Frame holen
             _ = coroutine.cr_await
             frame = coroutine.cr_frame
-            text = frame.f_locals["text"] if "text" in frame.f_locals else coroutine.__name__
+            text = frame.f_locals["text"] if frame is not None and "text" in frame.f_locals else coroutine.__name__
             return text
 
         a0 = spawn.call_args_list[0][0][0]
@@ -127,9 +144,11 @@ def test_deliver_accumulates_and_splits_at_max_chars():
         a1.close()
 
 
-def test_deliver_empty_reply_sends_nothing():
+def test_deliver_empty_reply_sends_nothing() -> None:
     upd = FakeUpdate(text="ping")
-    ctx = TelegramChannel.deliver(upd)
+    ctx = TelegramChannel.deliver(_as_update(upd))
+    assert ctx.on_partial_reply is not None
+    assert ctx.on_block_reply_flush is not None
     ctx.on_partial_reply("   ")
     with mock.patch("selma.adapter_telegram.spawn_background_task") as spawn:
         ctx.on_block_reply_flush()
@@ -139,37 +158,37 @@ def test_deliver_empty_reply_sends_nothing():
 # ── is_enabled / name ────────────────────────────────────
 
 
-def test_name_and_is_enabled():
+def test_name_and_is_enabled() -> None:
     assert TelegramChannel.name == "telegram"
 
     class On:
-        def is_channel_enabled(self, name):
+        def is_channel_enabled(self, name: str) -> bool:
             return name == "telegram"
 
     class Off:
-        def is_channel_enabled(self, name):
+        def is_channel_enabled(self, name: str) -> bool:
             return False
 
-    assert TelegramChannel().is_enabled(On()) is True
-    assert TelegramChannel().is_enabled(Off()) is False
+    assert TelegramChannel().is_enabled(_as_config(On())) is True
+    assert TelegramChannel().is_enabled(_as_config(Off())) is False
 
 
 # ── start ────────────────────────────────────────────────
 
 
-def test_start_skips_without_token():
+def test_start_skips_without_token() -> None:
     class NoTokenConfig:
-        def get_telegram_token(self):
+        def get_telegram_token(self) -> str | None:
             return None
 
-    async def run():
+    async def run() -> None:
         with mock.patch.dict("sys.modules", {"selma.gateway": types.SimpleNamespace(handle_telegram=object())}):
-            await TelegramChannel().start(NoTokenConfig())
+            await TelegramChannel().start(_as_config(NoTokenConfig()))
 
     asyncio.new_event_loop().run_until_complete(run())  # darf nicht werfen
 
 
-def test_start_boots_polling_with_token():
+def test_start_boots_polling_with_token() -> None:
     """Mit Token: initialize + start + polling werden aufgerufen, 2 Handler."""
 
     inits = {"init": False, "start": False, "poll": False}
@@ -183,22 +202,22 @@ def test_start_boots_polling_with_token():
     )
 
     class TokenConfig:
-        def get_telegram_token(self):
+        def get_telegram_token(self) -> str:
             return "TOKEN-123"
 
     class FakeApplicationBuilder:
-        def token(self, tok):
+        def token(self, tok: str) -> "FakeApplicationBuilder":
             assert tok == "TOKEN-123"
             return self
 
-        def build(self):
+        def build(self) -> types.SimpleNamespace:
             return app
 
     import selma.adapter_telegram as tg_mod
 
     with mock.patch.object(tg_mod, "ApplicationBuilder", FakeApplicationBuilder):
         with mock.patch.dict("sys.modules", {"selma.gateway": types.SimpleNamespace(handle_telegram=object())}):
-            asyncio.new_event_loop().run_until_complete(TelegramChannel().start(TokenConfig()))
+            asyncio.new_event_loop().run_until_complete(TelegramChannel().start(_as_config(TokenConfig())))
 
     assert inits["init"] is True
     assert inits["start"] is True
