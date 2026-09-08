@@ -32,9 +32,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=9.0.3",
+    "bandit>=1.9.0",
+    "mypy>=2.0.0",
     "pre-commit>=4.0.0",
+    "pytest>=9.0.3",
+    "pytest-cov>=7.0.0",
     "ruff>=0.16.0",
+    "vulture>=2.15.0",
 ]
 
 [tool.setuptools.packages.find]
