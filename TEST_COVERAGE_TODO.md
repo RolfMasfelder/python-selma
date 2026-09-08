@@ -25,11 +25,11 @@ Start: kleinste Datei zuerst.
 - [x] agent_runtime.py — 13289 B — 0% → 100% (2026-09-03, tests/unit/test_unit_agent_runtime.py — 32 Tests: RunResult/RunParams-Defaults + Serialization, RunLaneManager (Lock/Active-Done/Cross-Key), SessionFactory (Cache-Hit/Invalidate/Idempotent), SystemPromptBuilder (light HEARTBEAT.md + Safety + Runtime, full ResourceLoader + Truncation 20k), EventSubscriber (message_update/message_end/tool_*/agent_end), RunOrchestrator (ok/timeout/error/Cross-Lane/Sequential); Stolpersteine: message_end muss WÄHREND prompt() gesendet werden (Orchestrator liest final_reply nach prompt-Return), build_system_prompt() wird positionell mit BuildSystemPromptOptions aufgerufen (call_args.args[0]), timeout_ms über **kw, nicht als Named-Param im Helper)
 - [x] agent.py — 15286 B — 38% → 100% (2026-09-06, tests/unit/test_unit_agent.py — 15 Tests: Data-Classes/Defaults, prompt()-Double-Run, subscribe/unsubscribe, Plain-Text-Stream Event-Reihenfolge, Tool-Call-Delta-Akkumulation (id/name/arguments über 2 Chunks), sync+async Tool-Exec, unknown tool, Tool-Exception, invalid-JSON-Fallback, thinking_level→reasoning_effort, convert_to_llm-Hook, LLM-Fehler + agent_end, Subscriber-Exception-Isolation; Stolperstein: Tool-Call-Argumente über Chunks splitten NUR an JSON-gültigen Grenzen — Split mitten im Key (z. B. '{"va"' + 'ue": "x"}') ergibt konkateniert invalides JSON → {}-Fallback → Tool-Fehler; Fake via SimpleNamespace-Chunks, streamender fake_create als async-Generator)
 - [ ] tools.py — 16238 B — 42%
-- [ ] command_manager.py — 17211 B — 0%
-- [ ] session_store.py — 19219 B — 0%
+- [x] command_manager.py — 17211 B — 16% → 99% (2026-09-07, tests/unit/test_unit_command_manager.py — 45 Tests; 1 Miss: _memory_flush-Wicklung nur via /compact, im Test gepatcht)
+- [x] session_store.py — 19219 B — 27% → 97% (2026-09-06, tests/unit/test_unit_session_store.py)
 - [ ] memory_index.py — 20531 B — 60%
 - [ ] agent_session.py — 27266 B — 0%
-- [ ] my_tools.py — 30770 B — 8%
+- [x] my_tools.py — 30770 B — 14% → 91% (2026-09-08, tests/unit/test_unit_my_tools.py — 64 Tests; Stolpersteine: rg IST installiert → `no_rg`-Fixture (subprocess.run→FileNotFoundError) für python-Branch, TimeoutExpired.stdout=None, ENAMETOOLONG bei 60k-Char-Namen (350×151B statt), read_text() normalisiert CRLF → CRLF-Restore toter Code)
 - [ ] system_prompt.py — 32269 B — 0%
 - [ ] runtime.py — 38113 B — 0%
 
