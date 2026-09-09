@@ -31,6 +31,6 @@ Start: kleinste Datei zuerst.
 - [ ] agent_session.py — 27266 B — 0%
 - [x] my_tools.py — 30770 B — 14% → 91% (2026-09-08, tests/unit/test_unit_my_tools.py — 64 Tests; Stolpersteine: rg IST installiert → `no_rg`-Fixture (subprocess.run→FileNotFoundError) für python-Branch, TimeoutExpired.stdout=None, ENAMETOOLONG bei 60k-Char-Namen (350×151B statt), read_text() normalisiert CRLF → CRLF-Restore toter Code)
 - [ ] system_prompt.py — 32269 B — 0%
-- [ ] runtime.py — 38113 B — 0%
+- [ ] runtime.py — 38113 B — 34% (253 Miss) — 🎯 **NÄCHSTER HEBEL** — Voraussetzung erfüllt: mypy-5-Errors behoben (`84cc9c9`, 2026-09-09); Stolperstein #17 in MEMORY.md
 
 Nicht auf der Liste (bereits ≥ 80%): resource_loader.py (91%), __init__.py (100%)
