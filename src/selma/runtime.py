@@ -262,15 +262,16 @@ def _resolve_skills_snapshot(
         or session_record.skills_snapshot is None
         or session_record.skills_snapshot.version != current_version
     )
-    if needs_refresh:
-        snapshot = build_skill_snapshot(workspace_dir, current_version)
-        session_record.skills_snapshot = snapshot
-        trace_and_log(
-            logger,
-            f"Skills snapshot rebuilt | version={current_version} skills={snapshot.skill_names}",
-        )
-    else:
-        snapshot = session_record.skills_snapshot
+    if not needs_refresh:
+        # mypy cannot narrow through the derived `needs_refresh` bool
+        # (needs_refresh False ⇒ snapshot is not None), so branch on it directly.
+        return session_record.skills_snapshot
+    snapshot = build_skill_snapshot(workspace_dir, current_version)
+    session_record.skills_snapshot = snapshot
+    trace_and_log(
+        logger,
+        f"Skills snapshot rebuilt | version={current_version} skills={snapshot.skill_names}",
+    )
     return snapshot
 
 
@@ -748,6 +749,8 @@ async def run_embedded_pi_agent(
         attempt = await run_embedded_attempt(opts.model_copy(update={"thinking_level": state.active_thinking}))
 
         if attempt.error is None:
+            # Invariant: a successful attempt always carries a result.
+            assert attempt.result is not None
             return attempt.result
 
         error = attempt.error
@@ -765,6 +768,9 @@ async def run_embedded_pi_agent(
 
         if should_retry:
             continue
+        # Invariant: a non-retry path always produces an error result
+        # (repair_* return (False, result) and never (False, None)).
+        assert error_result is not None
         return error_result
 
 
@@ -834,6 +840,17 @@ def _load_context_files(workspace_dir: str) -> list[EmbeddedContextFile]:
     return [EmbeddedContextFile(path=cf.path, content=cf.content) for cf in context_files_raw]
 
 
+_THINKING_LEVELS: list[Literal["low", "medium", "high"]] = ["low", "medium", "high"]
+
+
+def _extract_rejected_level(text: str) -> Literal["low", "medium", "high"] | None:
+    """Returns the first thinking level ('low'/'medium'/'high') mentioned in text, else None."""
+    for level in _THINKING_LEVELS:
+        if level in text:
+            return level
+    return None
+
+
 def detect_attempt_error(
     final_text: str | None,
     exception: Exception | None,
@@ -870,16 +887,10 @@ def detect_attempt_error(
             )
         if any(kw in message for kw in ["reasoning_effort", "thinking is not supported", "does not support thinking"]):
             # Optionally extract the rejected thinking level
-            rejected_level = None
-            for level in ["low", "medium", "high"]:
-                if level in message:
-                    rejected_level = level
-                    break
-
             return AttemptError(
                 kind="thinking_not_supported",
                 message=str(exception),
-                rejected_thinking_level=rejected_level,
+                rejected_thinking_level=_extract_rejected_level(message),
             )
 
     if final_text is not None:
@@ -893,16 +904,10 @@ def detect_attempt_error(
                 message=final_text,
             )
         if any(kw in text for kw in ["reasoning_effort", "thinking is not supported", "does not support thinking"]):
-            rejected_level = None
-            for level in ["low", "medium", "high"]:
-                if level in text:
-                    rejected_level = level
-                    break
-
             return AttemptError(
                 kind="thinking_not_supported",
                 message=final_text,
-                rejected_thinking_level=rejected_level,
+                rejected_thinking_level=_extract_rejected_level(text),
             )
 
     return None  # No known error detected
