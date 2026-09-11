@@ -27,10 +27,10 @@ Start: kleinste Datei zuerst.
 - [x] tools.py — 16238 B — 42% → 99% (2026-09-08, tests/unit/test_unit_tools.py)
 - [x] command_manager.py — 17211 B — 16% → 99% (2026-09-07, tests/unit/test_unit_command_manager.py)
 - [x] session_store.py — 19219 B — 27% → 97% (2026-09-06, tests/unit/test_unit_session_store.py)
-- [ ] memory_index.py — 20531 B — 60% — 🎯 **NÄCHSTER HEBEL**
-- [ ] agent_session.py — 27266 B — 0%
 - [x] my_tools.py — 30770 B — 14% → 91% (2026-09-08, tests/unit/test_unit_my_tools.py)
-- [ ] system_prompt.py — 32269 B — 0%
+- [x] system_prompt.py — 32269 B — 35% → 100% (2026-09-11, tests/unit/test_unit_system_prompt.py, 90 Tests)
 - [x] runtime.py — 38113 B — 34% → 99% (2026-09-10, tests/unit/test_unit_runtime.py, 84 Tests)
+- [ ] agent_session.py — 27266 B — 0% → 37% — 🎯 **NÄCHSTER HEBEL**
+- [ ] memory_index.py — 20531 B — 60%
 
 Nicht auf der Liste (bereits ≥ 80%): resource_loader.py (91%), __init__.py (100%)
