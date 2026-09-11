@@ -341,7 +341,7 @@ class MemoryIndex:
         query_vec = self._embedder.embed(query)
         if query_vec is None:
             logger.warning("Query embedding failed — falling back to FTS-only")
-            return self._fts_search(fts_query, max_results, min_score)
+            return self._fts_search(fts_query, max_results, min_score, mtime_by_path)
 
         # Load stored embeddings for candidates
         candidate_paths = list({row["path"] for row in fts_rows})

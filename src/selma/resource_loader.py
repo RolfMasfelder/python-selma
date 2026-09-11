@@ -32,7 +32,8 @@ class ResourceLoader:
     """
 
     def __init__(self, cwd: str | Path = "."):
-        self._workspace = Path(get_workspace(cwd))
+        # get_workspace() akzeptiert nur str — cwd kann aus dem Aufrufer str|Path sein
+        self._workspace = Path(get_workspace(str(cwd)))
 
     def load_context_files(self) -> list[ContextFile]:
         """

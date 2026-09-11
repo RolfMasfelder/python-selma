@@ -187,9 +187,11 @@ def strip_heartbeat_token(
     stripped_norm, did_norm = _strip_token_at_edges(normalized)
 
     if did_orig and stripped_orig:
-        stripped, did_strip = stripped_orig, did_orig
+        stripped = stripped_orig
+        did_strip: bool = did_orig
     else:
-        stripped, did_strip = stripped_norm, did_norm
+        stripped = stripped_norm
+        did_strip = did_norm
 
     if not did_strip:
         return {"should_skip": False, "text": trimmed, "did_strip": False}

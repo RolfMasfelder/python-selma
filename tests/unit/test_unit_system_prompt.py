@@ -584,18 +584,30 @@ class TestBuildAgentSystemPrompt:
         out = sp.build_agent_system_prompt(p)
         assert "## Reasoning Format" not in out
 
-    def test_reaction_section_via_params(self):
-        # NOTE: params.reaction_guidance is typed str|None but the section
-        # builder expects a ReactionGuidance model. The main() passes it as-is,
-        # so a string would AttributeError at .level. We test via the private
-        # builder separately (TestBuildReactionSection). Here we confirm the
-        # section is NOT emitted when a bare string is passed (it isn't,
-        # because the code path is: `if guidance is None: return []` — a
-        # string is truthy, so it tries guidance.level → AttributeError).
-        # To keep this test green, we pass None.
+    def test_reaction_section_none_omitted(self):
         p = _params(reaction_guidance=None)
         out = sp.build_agent_system_prompt(p)
         assert "## Reactions" not in out
+
+    def test_reaction_section_minimal_via_params(self):
+        p = _params(
+            reaction_guidance=sp.ReactionGuidance(level="minimal", channel="Telegram"),
+        )
+        out = sp.build_agent_system_prompt(p)
+        assert "## Reactions" in out
+        assert "Reactions are enabled for Telegram in MINIMAL mode." in out
+
+    def test_reaction_section_extensive_via_params(self):
+        p = _params(
+            reaction_guidance=sp.ReactionGuidance(level="extensive", channel="Signal"),
+        )
+        out = sp.build_agent_system_prompt(p)
+        assert "Reactions are enabled for Signal in EXTENSIVE mode." in out
+
+    def test_reaction_section_rejects_string(self):
+        # reaction_guidance is ReactionGuidance | None — a bare string must be rejected by Pydantic
+        with pytest.raises(ValidationError):
+            _params(reaction_guidance="extensive")  # type: ignore[arg-type]
 
     def test_boundary_appears_exactly_once(self):
         p = _params()

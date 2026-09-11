@@ -147,8 +147,8 @@ class BuildAgentSystemPromptParams(BaseModel):
     # Timezone of the user (e.g. "Europe/Berlin"), used in the time section
     user_timezone: str | None = None
 
-    # Optional guidance text appended to the reaction section
-    reaction_guidance: str | None = None
+    # Optional guidance appended to the reaction section
+    reaction_guidance: ReactionGuidance | None = None
 
     # Optional hint for the reasoning XML tag name
     reasoning_tag_hint: str | None = None
@@ -412,7 +412,7 @@ def _build_reaction_section(guidance: ReactionGuidance | None) -> list[str]:
     return ["## Reactions", text, ""]
 
 
-def _build_reasoning_section(reasoning_tag_hint: bool) -> list[str]:
+def _build_reasoning_section(reasoning_tag_hint: str | None) -> list[str]:
     """
     Corresponds to the reasoningHint block in buildAgentSystemPrompt().
     Only for providers that use <think> tags (e.g. xAI/Grok).

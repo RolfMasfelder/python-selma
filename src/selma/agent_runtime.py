@@ -7,10 +7,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -49,9 +49,9 @@ class RunParams(BaseModel):
     model: str | None = None
     timeout_ms: int = 120_000
     light_context: bool = False  # True → only HEARTBEAT.md in system prompt
-    on_block_reply: Callable[[str], Awaitable[None]] | None = Field(default=None, exclude=True)
+    on_block_reply: Callable[[str], Coroutine[Any, Any, None]] | None = Field(default=None, exclude=True)
     # Called for every text chunk (message_update). Used by the SSE stream endpoint.
-    on_chunk: Callable[[str], Awaitable[None]] | None = Field(default=None, exclude=True)
+    on_chunk: Callable[[str], Coroutine[Any, Any, None]] | None = Field(default=None, exclude=True)
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -234,8 +234,8 @@ class EventSubscriber:
 
     def __init__(
         self,
-        on_block_reply: Callable[[str], Awaitable[None]] | None = None,
-        on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        on_block_reply: Callable[[str], Coroutine[Any, Any, None]] | None = None,
+        on_chunk: Callable[[str], Coroutine[Any, Any, None]] | None = None,
     ):
         self._on_block_reply = on_block_reply
         self._on_chunk = on_chunk

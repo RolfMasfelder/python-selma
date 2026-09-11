@@ -42,6 +42,9 @@ class TelegramChannel:
             body_for_commands=raw_text.replace(f"@{bot_username}", "").strip(),
             raw=update,
             session_key=s_key,
+            provider="telegram",
+            chat_type=chat.type,
+            sender_name=user.first_name,
         )
 
     @classmethod

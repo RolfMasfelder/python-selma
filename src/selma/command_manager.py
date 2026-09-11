@@ -244,7 +244,10 @@ class CommandManager:
         # Message count from transcript file
         session_file = resolve_session_file(record, cwd=self._cwd) if record else None
         if session_file and Path(session_file).exists():
-            msg_count = sum(1 for _ in Path(session_file).open(encoding="utf-8"))
+            # Note: separate local (msg_count_int) — `msg_count` itself is re-used
+            # below for a display value, so keep the raw int in its own name.
+            msg_count_int = sum(1 for _ in Path(session_file).open(encoding="utf-8"))
+            msg_count: str | int = msg_count_int
         else:
             msg_count = "—"
 

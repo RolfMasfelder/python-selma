@@ -22,6 +22,10 @@ class NormalizedTurnInput(BaseModel):
 
     # Selma-specific
     session_key: str | None = None
+    # Channel context (filled by ChannelAdapter.normalize)
+    provider: str | None = None
+    chat_type: str | None = None
+    sender_name: str | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 

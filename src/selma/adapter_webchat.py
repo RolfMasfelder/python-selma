@@ -25,6 +25,9 @@ class WebChatChannel:
             body_for_commands=text.strip(),
             raw=raw_data,
             session_key=f"webchat:{user_id}",
+            provider="webchat",
+            chat_type="dm",
+            sender_name=user_name,
         )
 
     @classmethod

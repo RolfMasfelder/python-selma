@@ -665,6 +665,46 @@ async def _integration_memory_flush_creates_daily_file():
             daily_file.unlink()
 
 
+def test_hybrid_search_fallback_when_embedding_fails():
+    """Embedding des Query-Vektors schlägt fehl → Fallback auf FTS-only.
+
+    Regression: Der Fallback rief _fts_search() OHNE den required-Parameter
+    mtime_by_path auf → TypeError bei jedem Embedding-Ausfall.
+    Der Spy proofet, dass mtime_by_path jetzt tatsächlich durchgereicht wird
+    (nicht nur, dass gar kein Fehler fliegt).
+    """
+    from unittest import mock
+
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "MEMORY.md").write_text("- Favourite colour: Blue\n", encoding="utf-8")
+
+        idx = MemoryIndex(workspace_dir=str(ws), vector_search=True, temporal_decay=True)
+        idx.sync()
+
+        # Query-Embedding zwingend zum Scheitern bringen (None)
+        with mock.patch.object(idx, "_embedder") as fake_embedder:
+            fake_embedder.embed = mock.MagicMock(return_value=None)
+
+            calls: list[dict] = []
+            real_fts = idx._fts_search
+
+            def spy(fts_query, max_results, min_score, mtime_by_path):
+                calls.append(mtime_by_path)
+                return real_fts(fts_query, max_results, min_score, mtime_by_path)
+
+            idx._fts_search = spy  # type: ignore[method-assign]
+            results = idx.search("favourite colour blue")
+
+        # Fallback-Pfad lief tatsächlich, mit mtime-Dict (temporal_decay=True)
+        assert len(calls) == 1, f"Expected _fts_search fallback call, got {len(calls)}"
+        assert calls[0], "mtime_by_path must be forwarded to the FTS fallback"
+        assert len(results) == 1
+        assert "Blue" in results[0].content
+
+
 # ════════════════════════════════════════════════════════════
 # TEST RUNNER
 # ════════════════════════════════════════════════════════════
@@ -695,6 +735,7 @@ UNIT_TESTS = [
     test_index_search_no_results,
     test_index_search_min_score_filters_results,
     test_index_max_results_limit,
+    test_hybrid_search_fallback_when_embedding_fails,
     test_chunk_text_splits_at_paragraphs,
     test_chunk_text_empty_input,
     test_build_fts_query_tokenizes_words,

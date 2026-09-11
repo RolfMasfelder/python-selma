@@ -203,7 +203,7 @@ async def handle_telegram(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ctx: NormalizedTurnInput = TelegramChannel.normalize(update)
         delivery = TelegramChannel.deliver(update)
         reply = await process_message_flow(ctx, delivery)
-        if reply:  # command or error — not handled by delivery callbacks
+        if reply and update.message:  # command or error — not handled by delivery callbacks
             await update.message.reply_text(reply)
     except Exception:
         logging.exception("Telegram error")
