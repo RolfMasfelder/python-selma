@@ -10,7 +10,7 @@ from selma.my_tools import create_read_only_tools
 from selma.test_helper import setup_logger
 from selma.tracing import tracer
 
-MODEL_NAME = "qwen2.5:7b"
+MODEL_NAME = "qwen3.8-27b-t16"
 
 # ─── LOGGING ────────────────────────────────────────────────
 
