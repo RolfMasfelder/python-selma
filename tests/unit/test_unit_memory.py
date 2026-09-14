@@ -706,6 +706,412 @@ def test_hybrid_search_fallback_when_embedding_fails():
 
 
 # ════════════════════════════════════════════════════════════
+# UNIT — MemoryIndex Phase 3/4: Embeddings, Hybrid, Decay
+# ════════════════════════════════════════════════════════════
+
+
+class _FakeHttpResponse:
+    """Minimale Ersatz für urllib's urlopen-Response (Context-Manager)."""
+
+    def __init__(self, body: bytes):
+        self._body = body
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self) -> "_FakeHttpResponse":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+
+def test_embedder_success_parses_embedding():
+    """embed() liefert den Vektor und ruft <base>/embeddings auf."""
+    import json
+    from unittest import mock
+
+    from selma.memory_index import EmbeddingProvider
+
+    provider = EmbeddingProvider(model="nomic-embed-text", base_url="http://ollama/v1/")
+    body = json.dumps({"data": [{"embedding": [1.0, 0.5, -0.25]}]}).encode()
+    with mock.patch("selma.memory_index.urllib.request.urlopen", return_value=_FakeHttpResponse(body)) as m:
+        assert provider.embed("hello") == [1.0, 0.5, -0.25]
+    # Trailing Slash am base_url wird normalisiert:
+    assert m.call_args.args[0].full_url == "http://ollama/v1/embeddings"
+
+
+def test_embedder_error_returns_none():
+    """Embedding-Fehler (z.B. Ollama offline) → None, kein Exception."""
+    from unittest import mock
+    from urllib.error import URLError
+
+    from selma.memory_index import EmbeddingProvider
+
+    provider = EmbeddingProvider(model="nomic-embed-text", base_url="http://down")
+    with mock.patch("selma.memory_index.urllib.request.urlopen", side_effect=URLError("offline")):
+        assert provider.embed("hello") is None
+
+
+def test_sync_vector_stores_embedding_per_chunk():
+    """sync() mit vector_search speichert einen Vektor pro Chunk."""
+    import sqlite3
+    from unittest import mock
+
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        # Zwei 400-Char-Paragraphen → _CHUNK_SIZE=500 zwingt zu 2 Chunks:
+        (ws / "MEMORY.md").write_text("a" * 400 + "\n\n" + "b" * 400, encoding="utf-8")
+
+        idx = MemoryIndex(workspace_dir=str(ws), vector_search=True)
+        emb = mock.MagicMock()
+        emb.embed = mock.MagicMock(return_value=[0.1, 0.2])
+        with mock.patch.object(idx, "_embedder", emb):
+            assert idx.sync() == 1
+        # 2 Chunks → 2 embed-Aufrufe, 2 rows in chunks_vec:
+        assert emb.embed.call_count == 2
+        conn = sqlite3.connect(str(idx._db_path))
+        rows = conn.execute("SELECT path, chunk_idx FROM chunks_vec ORDER BY chunk_idx").fetchall()
+        conn.close()
+        assert rows == [("MEMORY.md", 0), ("MEMORY.md", 1)]
+
+
+def test_sync_vector_skips_failed_embeddings():
+    """Embedding-Ausfall beim Sync: FTS-Index entsteht, keine chunks_vec-rows."""
+    import sqlite3
+    from unittest import mock
+
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "MEMORY.md").write_text("some content here\n", encoding="utf-8")
+
+        idx = MemoryIndex(workspace_dir=str(ws), vector_search=True)
+        emb = mock.MagicMock()
+        emb.embed = mock.MagicMock(return_value=None)
+        with mock.patch.object(idx, "_embedder", emb):
+            assert idx.sync() == 1  # Datei wird trotzdem (FTS-)indexiert
+
+        conn = sqlite3.connect(str(idx._db_path))
+        fts = conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0]
+        vec = conn.execute("SELECT COUNT(*) FROM chunks_vec").fetchone()[0]
+        stored = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+        conn.close()
+        assert fts == 1 and vec == 0 and stored == 1
+
+
+def test_sync_vector_removes_deleted_file_rows():
+    """Gelöschte Datei: chunks_fts- UND chunks_vec-rows verschwinden."""
+    import sqlite3
+    from unittest import mock
+
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        today = date.today().isoformat()
+        daily = ws / "memory" / f"{today}.md"
+        daily.write_text("temporary vec note\n", encoding="utf-8")
+
+        idx = MemoryIndex(workspace_dir=str(ws), vector_search=True)
+        emb = mock.MagicMock()
+        emb.embed = mock.MagicMock(return_value=[0.9])
+        with mock.patch.object(idx, "_embedder", emb):
+            idx.sync()
+        daily.unlink()
+        idx.sync()
+
+        conn = sqlite3.connect(str(idx._db_path))
+        vec = conn.execute("SELECT COUNT(*) FROM chunks_vec").fetchone()[0]
+        stored = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+        conn.close()
+        assert vec == 0 and stored == 0
+
+
+def test_search_blank_query_returns_empty():
+    """Query ohne Tokens → leeres FTS-Query, kein FTS-Durchlauf."""
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "MEMORY.md").write_text("anything at all\n", encoding="utf-8")
+        idx = MemoryIndex(workspace_dir=str(ws))
+        idx.sync()
+        assert idx.search("   ") == []
+
+
+def test_fts_search_returns_empty_on_sqlite_error():
+    """sqlite3.OperationalError im FTS-Durchlauf → [], kein Crash."""
+    from sqlite3 import OperationalError
+    from unittest import mock
+
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "MEMORY.md").write_text("python notes\n", encoding="utf-8")
+        idx = MemoryIndex(workspace_dir=str(ws))
+        idx.sync()
+        # ensure_schema() (außerhalb der try-Blöcke) darf weiterlaufen,
+        # nur der Such-Connect darf fehlschlagen:
+        with (
+            mock.patch.object(idx, "ensure_schema", lambda: None),
+            mock.patch.object(idx, "_connect", side_effect=OperationalError("db locked")),
+        ):
+            assert idx.search("python") == []
+
+
+def test_hybrid_search_fts_stage_sqlite_error_returns_empty():
+    """FTS-Stage des Hybrid-Suchlaufs schlägt fehl → []."""
+    from sqlite3 import OperationalError
+    from unittest import mock
+
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        idx = MemoryIndex(workspace_dir=str(ws), vector_search=True)
+        idx.ensure_schema()
+        with mock.patch.object(idx, "_connect", side_effect=OperationalError("db locked")):
+            assert idx._hybrid_search("python", '"python"', 5, None, {}) == []
+
+
+def test_hybrid_search_embedding_load_error_degrades_to_bm25():
+    """Fehler beim Laden gespeicherter Vektoren → Warnung + reiner BM25-Score."""
+    import math
+    import sqlite3
+    from unittest import mock
+
+    from selma.memory_index import MemoryIndex, _normalise_bm25
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "MEMORY.md").write_text("alpha beta gamma\n", encoding="utf-8")
+
+        idx = MemoryIndex(workspace_dir=str(ws), vector_search=True)
+        # Ein Fake-Embedder für BEIDE Phasen (Sync + Query): Vektor [1,0]
+        emb = mock.MagicMock()
+        emb.embed = mock.MagicMock(return_value=[1.0, 0.0])
+        with mock.patch.object(idx, "_embedder", emb):
+            idx.sync()
+
+        conn = sqlite3.connect(str(idx._db_path))
+        assert conn.execute("SELECT COUNT(*) FROM chunks_vec").fetchone()[0] == 1
+        raw = conn.execute("SELECT bm25(chunks_fts) FROM chunks_fts WHERE chunks_fts MATCH '\"alpha\"'").fetchone()[0]
+        conn.close()
+
+        # _connect schlägt NUR im chunks_vec-Load weg; FTS-Select läuft durch:
+        real_connect = idx._connect
+        connect_calls = {"n": 0}
+
+        def flaky_connect():
+            connect_calls["n"] += 1
+            if connect_calls["n"] == 2:
+                raise RuntimeError("disk error")
+            return real_connect()
+
+        with (
+            mock.patch.object(idx, "_connect", flaky_connect),
+            mock.patch.object(
+                idx,
+                "_embedder",
+            ) as emb2,
+        ):
+            emb2.embed = mock.MagicMock(return_value=[1.0, 0.0])  # Query-Embedding ok
+            results = idx._hybrid_search("alpha beta gamma", '"alpha"', 5, None, {})
+
+        assert len(results) == 1
+        # Kein Vektor ladbar → Score = purer normalisierter BM25:
+        assert math.isclose(results[0].score, _normalise_bm25(raw), rel_tol=1e-9)
+
+
+def test_hybrid_search_no_candidates_returns_empty():
+    """Keine FTS-Kandidaten → Hybrid-Search liefert []."""
+    from unittest import mock
+
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "MEMORY.md").write_text("python notes\n", encoding="utf-8")
+        idx = MemoryIndex(workspace_dir=str(ws), vector_search=True)
+        with mock.patch.object(idx, "_embedder") as emb:
+            emb.embed = mock.MagicMock(return_value=[1.0])
+            idx.sync()
+
+        with mock.patch.object(idx, "_embedder") as emb:
+            emb.embed = mock.MagicMock(return_value=[1.0])
+            assert idx._hybrid_search("zzz", '"zzzxyzzy"', 5, None, {}) == []
+
+
+def test_hybrid_search_reranks_with_cosine_similarity():
+    """Hybrid-Score = 0,5 × cosine(Query, Chunk) + 0,5 × normalised-BM25."""
+    import math
+    import sqlite3
+    from unittest import mock
+
+    from selma.memory_index import MemoryIndex, _normalise_bm25
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "MEMORY.md").write_text("alpha beta gamma\n", encoding="utf-8")
+
+        idx = MemoryIndex(workspace_dir=str(ws), vector_search=True)
+        emb = mock.MagicMock()
+        # 1. Call = Chunk-Embedding beim Sync, 2. Call = Query-Embedding:
+        emb.embed = mock.MagicMock(
+            side_effect=[
+                [1.0, 0.0],  # gespeicherter Chunk-Vektor
+                [0.6, 0.8],
+            ]
+        )  # Query: cos() == 0.6
+        with mock.patch.object(idx, "_embedder", emb):
+            idx.sync()
+            results = idx._hybrid_search("alpha beta gamma", '"alpha"', 5, None, {})
+
+        assert len(results) == 1
+        assert results[0].path == "MEMORY.md"
+        conn = sqlite3.connect(str(idx._db_path))
+        raw = conn.execute("SELECT bm25(chunks_fts) FROM chunks_fts WHERE chunks_fts MATCH '\"alpha\"'").fetchone()[0]
+        conn.close()
+        expected = 0.5 * 0.6 + 0.5 * _normalise_bm25(raw)
+        assert math.isclose(results[0].score, expected, rel_tol=1e-9)
+
+
+def test_hybrid_search_chunk_without_vector_uses_pure_bm25():
+    """Chunk ohne gespeicherten Vektor → nur normalisierter BM25-Score."""
+    import math
+    import sqlite3
+    from unittest import mock
+
+    from selma.memory_index import MemoryIndex, _normalise_bm25
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "MEMORY.md").write_text("alpha beta gamma\n", encoding="utf-8")
+
+        idx = MemoryIndex(workspace_dir=str(ws), vector_search=True)
+        emb = mock.MagicMock()
+        emb.embed = mock.MagicMock(return_value=None)  # Sync: kein Vektor gespeichert
+        with mock.patch.object(idx, "_embedder", emb):
+            idx.sync()
+
+        conn = sqlite3.connect(str(idx._db_path))
+        raw = conn.execute("SELECT bm25(chunks_fts) FROM chunks_fts WHERE chunks_fts MATCH '\"alpha\"'").fetchone()[0]
+        conn.close()
+
+        emb2 = mock.MagicMock()
+        emb2.embed = mock.MagicMock(return_value=[0.1, 0.2])  # Query-Embedding ok
+        with mock.patch.object(idx, "_embedder", emb2):
+            results = idx.search("alpha")
+
+        assert len(results) == 1
+        assert math.isclose(results[0].score, _normalise_bm25(raw), rel_tol=1e-9)
+
+
+def test_hybrid_search_respects_min_score():
+    """min_score filtert auch im Hybrid-Pfad."""
+    from unittest import mock
+
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "MEMORY.md").write_text("alpha beta gamma\n", encoding="utf-8")
+
+        idx = MemoryIndex(workspace_dir=str(ws), vector_search=True)
+        emb = mock.MagicMock()
+        emb.embed = mock.MagicMock(return_value=[1.0, 0.0])
+        with mock.patch.object(idx, "_embedder", emb):
+            idx.sync()
+            # Score ≤ 1.0 → mit min_score=1.1 filtert:
+            assert idx._hybrid_search("alpha beta gamma", '"alpha"', 5, 1.1, {}) == []
+
+
+def test_apply_decay_rewards_recency():
+    """Temporale Decay: neuer Content > 100 Tage alter Content."""
+    import time
+
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        idx = MemoryIndex(workspace_dir=str(ws), temporal_decay=True, temporal_decay_rate=0.1)
+        fresh = idx._apply_decay(1.0, "p.md", {"p.md": time.time()})
+        old = idx._apply_decay(1.0, "p.md", {"p.md": time.time() - 100 * 86400.0})
+        # 100 Tage alt, rate=0.1: 0.7×1 + 0.3×e⁻¹⁰ ≈ 0.7014
+        assert 0.70 < old < 0.72
+        assert old < fresh
+        assert 0.99 <= fresh <= 1.0
+
+
+def test_apply_decay_identity_for_unknown_path():
+    """Unbekannter mtime-Eintrag → Score unverändert (keine Decay)."""
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        idx = MemoryIndex(workspace_dir=str(ws), temporal_decay=True)
+        assert idx._apply_decay(0.8, "missing.md", {}) == 0.8
+
+
+def test_apply_decay_disabled_is_identity():
+    """temporal_decay=False → Score geht unverändert durch."""
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        idx = MemoryIndex(workspace_dir=str(ws), temporal_decay=False)
+        assert idx._apply_decay(0.42, "x.md", {"x.md": 0.0}) == 0.42
+
+
+def test_load_mtimes_returns_empty_on_error():
+    """DB-Fehler bei mtime-Lade → leeres Dict (kein Crash)."""
+    from unittest import mock
+
+    from selma.memory_index import MemoryIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "MEMORY.md").write_text("content\n", encoding="utf-8")
+        idx = MemoryIndex(workspace_dir=str(ws), temporal_decay=True)
+        idx.sync()
+        with mock.patch.object(idx, "_connect", side_effect=RuntimeError("gone")):
+            assert idx._load_mtimes() == {}
+        # Und normaler Fall funktioniert danach weiter:
+        assert idx._load_mtimes()["MEMORY.md"] > 0
+
+
+def test_chunk_text_breaks_on_chunk_size_limit():
+    """Paragraph > _CHUNK_SIZE → Aufteilen, ohne Content zu verlieren."""
+    from selma.memory_index import _chunk_text
+
+    para = "w" * 400
+    text = "\n\n".join([para] * 3)
+    chunks = _chunk_text(text)
+
+    # 400+400 > 500 → hier exakt ein Paragraph pro Chunk:
+    assert len(chunks) == 3
+    assert all(len(c) <= 500 for c in chunks)
+    assert " ".join(chunks).split() == [para, para, para]
+
+
+def test_cosine_sim_edge_cases():
+    """Kosinus-ähnlich: identisch = 1.0, Nullvektor = 0.0, negativ wird geclippt."""
+    import math
+
+    from selma.memory_index import _cosine_sim
+
+    assert math.isclose(_cosine_sim([1.0, 2.0], [2.0, 4.0]), 1.0)
+    assert _cosine_sim([0.0, 0.0], [1.0, 0.0]) == 0.0
+    assert _cosine_sim([1.0, 0.0], [0.0, 0.0]) == 0.0
+    assert _cosine_sim([1.0, 0.0], [-1.0, 0.0]) == 0.0  # negativ geclippt
+
+
+# ════════════════════════════════════════════════════════════
 # TEST RUNNER
 # ════════════════════════════════════════════════════════════
 
@@ -736,6 +1142,26 @@ UNIT_TESTS = [
     test_index_search_min_score_filters_results,
     test_index_max_results_limit,
     test_hybrid_search_fallback_when_embedding_fails,
+    # Phase 3/4 — Embeddings, Hybrid, Decay
+    test_embedder_success_parses_embedding,
+    test_embedder_error_returns_none,
+    test_sync_vector_stores_embedding_per_chunk,
+    test_sync_vector_skips_failed_embeddings,
+    test_sync_vector_removes_deleted_file_rows,
+    test_search_blank_query_returns_empty,
+    test_fts_search_returns_empty_on_sqlite_error,
+    test_hybrid_search_fts_stage_sqlite_error_returns_empty,
+    test_hybrid_search_embedding_load_error_degrades_to_bm25,
+    test_hybrid_search_no_candidates_returns_empty,
+    test_hybrid_search_reranks_with_cosine_similarity,
+    test_hybrid_search_chunk_without_vector_uses_pure_bm25,
+    test_hybrid_search_respects_min_score,
+    test_apply_decay_rewards_recency,
+    test_apply_decay_identity_for_unknown_path,
+    test_apply_decay_disabled_is_identity,
+    test_load_mtimes_returns_empty_on_error,
+    test_chunk_text_breaks_on_chunk_size_limit,
+    test_cosine_sim_edge_cases,
     test_chunk_text_splits_at_paragraphs,
     test_chunk_text_empty_input,
     test_build_fts_query_tokenizes_words,

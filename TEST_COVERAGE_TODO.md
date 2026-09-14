@@ -31,6 +31,8 @@ Start: kleinste Datei zuerst.
 - [x] system_prompt.py — 32269 B — 35% → 100% (2026-09-11, tests/unit/test_unit_system_prompt.py, 90 Tests)
 - [x] runtime.py — 38113 B — 34% → 99% (2026-09-10, tests/unit/test_unit_runtime.py, 84 Tests)
 - [x] agent_session.py — 27266 B — 37% → 99% (2026-09-13, tests/unit/test_unit_agent_session.py, 45 Tests)
-- [ ] memory_index.py — 20531 B — 60% (93 Miss) — 🎯 **NÄCHSTER HEBEL**
+- [x] memory_index.py — 20531 B — 60% → **100%** (2026-09-13, tests/unit/test_unit_memory.py, 50 Tests)
+
+**Stand 2026-09-13: ALLE Dateien ≥ 88%, Gesamt-Coverage 98% — Liste abgeschlossen. ✅**
 
 Nicht auf der Liste (bereits ≥ 80%): resource_loader.py (91%), __init__.py (100%)
