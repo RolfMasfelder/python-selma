@@ -170,6 +170,43 @@ def test_daily_memory_in_context_files():
         assert f"{today}.md" in names, f"Daily file missing in: {names}"
 
 
+def test_bootstrap_md_loaded_when_present():
+    """BOOTSTRAP.md with non-empty content → full content in context files.
+
+    Content must survive ``.strip()`` — any non-blank file works (e.g. '# Boot'),
+    blank-only files would fall through to the [MISSING] marker instead.
+    """
+    from selma.resource_loader import ResourceLoader
+
+    content = "# BOOTSTRAP\n\nStep 1: setup workspace\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "BOOTSTRAP.md").write_text(content, encoding="utf-8")
+
+        files = ResourceLoader(cwd=tmp).load_context_files()
+        boot = [f for f in files if Path(f.path).name == "BOOTSTRAP.md"]
+
+        assert len(boot) == 1, "BOOTSTRAP.md should always be present in context"
+        assert boot[0].content == content  # not the [MISSING] marker
+
+
+def test_bootstrap_md_blank_skipped_to_missing():
+    """BOOTSTRAP.md that is whitespace-only → ``content.strip()`` is falsy →
+    falls through to the [MISSING] marker branch."""
+    from selma.resource_loader import ResourceLoader
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "BOOTSTRAP.md").write_text("   \n\t\n  \n", encoding="utf-8")
+
+        files = ResourceLoader(cwd=tmp).load_context_files()
+        boot = [f for f in files if Path(f.path).name == "BOOTSTRAP.md"]
+
+        assert len(boot) == 1, "BOOTSTRAP.md should always be present in context"
+        assert boot[0].content.startswith("[MISSING] Expected at: ")
+        assert "BOOTSTRAP.md" in boot[0].path
+
+
 # ════════════════════════════════════════════════════════════
 # UNIT TESTS — memory_get Tool
 # ════════════════════════════════════════════════════════════

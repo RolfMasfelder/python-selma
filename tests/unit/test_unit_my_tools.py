@@ -553,6 +553,220 @@ def test_find_byte_truncation(tmp_path: Path):
 # ─── Public API ────────────────────────────────────────────
 
 
+# ─── OSError-Branches (read / write / edit / ls / exec) ─────
+
+
+def test_read_oserror(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Read on an existing file → OSError returns a friendly error, no raise."""
+    _seed(tmp_path, "f.txt", "data")
+
+    def _boom(*_a: Any, **_kw: Any) -> str:
+        raise OSError("EIO (simulated)")
+
+    monkeypatch.setattr(Path, "read_bytes", _boom)
+    out = _exec(make_read_tool(str(tmp_path)))(path="f.txt")
+    assert out == "Error reading file: EIO (simulated)"
+
+
+def test_write_oserror(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """write_text on existing target → OSError is caught, message returned."""
+
+    def _boom(*_a: Any, **_kw: Any) -> None:
+        raise OSError("EACCES (simulated)")
+
+    monkeypatch.setattr(Path, "write_text", _boom)
+    out = _exec(make_write_tool(str(tmp_path)))(path="out.txt", content="x")
+    assert out == "Error writing file: EACCES (simulated)"
+
+
+def test_edit_read_oserror(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """edit reads the file first — OSError there is caught before any match."""
+    _seed(tmp_path, "f.txt", "hello")
+
+    def _boom(*_a: Any, **_kw: Any) -> str:
+        raise PermissionError("read denied (simulated)")
+
+    monkeypatch.setattr(Path, "read_text", _boom)
+    out = _exec(make_edit_tool(str(tmp_path)))(path="f.txt", old_text="hello", new_text="bye")
+    assert out == "Error reading file: read denied (simulated)"
+
+
+def test_edit_write_oserror(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """edit: file readable, replacement found — write_text then fails
+    with OSError → caught branch, clean error message."""
+    _seed(tmp_path, "f.txt", "hello")
+
+    def _write_boom(*_a: Any, **_kw: Any) -> None:
+        raise OSError("ENOSPC (simulated)")
+
+    monkeypatch.setattr(Path, "write_text", _write_boom)
+    out = _exec(make_edit_tool(str(tmp_path)))(path="f.txt", old_text="hello", new_text="bye")
+    assert out == "Error writing file: ENOSPC (simulated)"
+
+
+def test_ls_oserror(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """iterdir() raising OSError → 'Error reading directory', no crash."""
+
+    def _boom(self: Any) -> Any:
+        raise OSError("EACCESS (simulated)")
+
+    monkeypatch.setattr(Path, "iterdir", _boom)
+    out = _exec(make_ls_tool(str(tmp_path)))()
+    assert out == "Error reading directory: EACCESS (simulated)"
+
+
+def test_exec_generic_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """subprocess.run raising something other than TimeoutExpired
+    (e.g. OSError) → generic 'Error executing command', no traceback."""
+
+    def _boom(*_a: Any, **_kw: Any) -> Any:
+        raise OSError("spawn denied (simulated)")
+
+    monkeypatch.setattr(mt.subprocess, "run", _boom)
+    out = _exec(make_exec_tool(str(tmp_path)))(command="echo hi")
+    assert out == "Error executing command: spawn denied (simulated)"
+
+
+def test_grep_rg_flags_captured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Exercise every rg-flag append branch by capturing the real argv list.
+
+    ``subprocess.run`` is faked, so the flags are asserted via the call args —
+    the branches (ignore_case / literal / glob / context) are all driven here.
+    """
+    _seed(tmp_path, "src/data.txt", "needle")
+
+    captured: list[Any] = []
+
+    class _FakeResult:
+        stdout = b"src/data.txt:1: needle"
+        returncode = 0
+
+    def _fake_run(args: Any, **_kw: Any) -> _FakeResult:
+        captured.append(list(args))
+        return _FakeResult()
+
+    monkeypatch.setattr(mt.subprocess, "run", _fake_run)
+    out = _exec(make_grep_tool(str(tmp_path)))(
+        pattern="(lit)",
+        path=str(tmp_path / "src"),
+        glob="**/*.txt",
+        ignore_case=True,
+        literal=True,
+        context=2,
+    )
+    assert "src/data.txt:1: needle" in out
+    assert len(captured) == 2  # 1st: rg --version probe, 2nd: actual search
+    search_args = captured[1]
+    assert "--ignore-case" in search_args
+    assert "--fixed-strings" in search_args
+    assert "--glob" in search_args and "**/*.txt" in search_args
+    assert "-C" in search_args and "2" in search_args
+
+
+def test_grep_rg_filenotfound_and_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """rg probe succeeds, but the search call raises FileNotFoundError,
+    or returns empty stdout → both yield ([] , False) → 'No matches found'."""
+    _seed(tmp_path, "f.txt", "needle")
+
+    class _FakeResultEmpty:
+        stdout = b""
+        returncode = 0
+
+    def _fnf_then_pass(a: Any, **_kw: Any) -> Any:
+        if a[:1] == ["rg"] and "--version" in a:
+            return _FakeResultEmpty()
+        raise FileNotFoundError("rg vanished (simulated)")
+
+    monkeypatch.setattr(mt.subprocess, "run", _fnf_then_pass)
+    out = _exec(make_grep_tool(str(tmp_path)))(pattern="needle")
+    assert out == "No matches found"
+
+    def _empty_out(a: Any, **_kw: Any) -> Any:
+        return _FakeResultEmpty()
+
+    monkeypatch.setattr(mt.subprocess, "run", _empty_out)
+    out2 = _exec(make_grep_tool(str(tmp_path)))(pattern="needle")
+    assert out2 == "No matches found"
+
+
+def test_grep_python_oserror_and_relfallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Python grep branch: per-file read OSError is skipped (continue),
+    and ``relative_to`` failure falls back to the bare filename."""
+    a = _seed(tmp_path, "a.txt", "x")
+    _seed(tmp_path, "b.txt", "needle")
+
+    rg = make_grep_tool(str(tmp_path))  # closure binds the fake below
+
+    # --- (1) _seed(a, "needle") → read OSError → skip, no crash -----------
+    def _read_oserr(_p: Any, *_pa: Any, **_pw: Any) -> str:
+        target: Path = _p if isinstance(_p, Path) else Path("a.txt")
+        if target == a:
+            raise OSError("EIO (simulated)")
+        with target.open(encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+
+    def _rg_unavail(*_a: Any, **_kw: Any) -> Any:
+        raise FileNotFoundError("rg unavailable in test")
+
+    monkeypatch.setattr(Path, "read_text", _read_oserr)
+    monkeypatch.setattr(mt.subprocess, "run", _rg_unavail)
+    out1 = rg.execute(pattern="needle")
+    assert "b.txt:1: needle" in out1
+    assert "a.txt" not in out1  # unreadable file skipped, not in results
+
+    # --- (2) relative_to raises → bare filename used ----------------------
+    def _rel_fails(self: Any, *pa: Any, **_pw: Any) -> Any:
+        raise ValueError("cannot make relative (simulated)")
+
+    monkeypatch.setattr(Path, "relative_to", _rel_fails)
+    out2 = rg.execute(pattern="needle")
+    assert "b.txt:1: needle" in out2  # name-only relative path
+
+    monkeypatch.undo()
+
+
+def test_grep_byte_truncation(tmp_path: Path, no_rg: None):
+    """Line-length > GREP_MAX_LINE_LENGTH (500) pushes total > 50KB →
+    byte-truncation branch fires, entry-limit (100) is NOT reached."""
+    # 99 matches (limit_reached stays False: 99 > 100 is False),
+    # but each hit renders as 500-char display + "... [truncated]" → 99 × ~514B
+    # ≈ 50.9KB > 50KB budget → byte-truncation branch only.
+    long_line = "x" * 600 + " needle\n"
+    file = tmp_path / "big.txt"
+    file.write_text(long_line * 99, encoding="utf-8")
+    out = _exec(make_grep_tool(str(tmp_path)))(pattern="needle")
+    assert "50.0KB limit reached" in out
+    assert "matches limit reached" not in out
+    assert "Showing lines" in out
+
+
+def test_find_search_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """rglob itself raising (e.g. on a broken symlink tree) →
+    'Error searching: …', no crash."""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "x.txt").write_text("x")
+
+    def _boom(self: Any, pattern: str) -> Any:
+        raise OSError("ENOSPC (simulated)")
+
+    monkeypatch.setattr(Path, "rglob", _boom)
+    out = _exec(make_find_tool(str(tmp_path)))(pattern="data/*.txt")
+    assert out == "Error searching: ENOSPC (simulated)"
+
+
+def test_find_relative_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Match lying outside ``search_path`` → ``relative_to`` raises →
+    the raw absolute path is used as the display entry."""
+    (tmp_path / "in.txt").write_text("x")
+
+    def _rel_fails(self: Any, *pa: Any, **_pw: Any) -> Any:
+        raise ValueError("outside search root (simulated)")
+
+    monkeypatch.setattr(Path, "relative_to", _rel_fails)
+    out = _exec(make_find_tool(str(tmp_path)))(pattern="*.txt")
+    assert out == str(tmp_path / "in.txt")  # absolute path as fallback
+
+
 def test_create_coding_tools(tmp_path: Path):
     tools = create_coding_tools(str(tmp_path))
     assert [t.name for t in tools] == ["read", "edit", "write", "exec"]

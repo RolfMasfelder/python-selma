@@ -335,10 +335,6 @@ def make_edit_tool(cwd: str) -> AgentTool:
         if new_content == content_for_replacement:
             return f"Error: no changes would be made to {path}. The replacement produces identical content."
 
-        # Restore CRLF if the original file used it
-        if "\r\n" in raw:
-            new_content = new_content.replace("\n", "\r\n")
-
         try:
             resolved.write_text(new_content, encoding="utf-8")
         except OSError as e:
