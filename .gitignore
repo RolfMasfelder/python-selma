@@ -15,6 +15,9 @@ venv
 .my_mono/
 .selma/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.vscode/
 
 # Dokus
 selma_doc/
