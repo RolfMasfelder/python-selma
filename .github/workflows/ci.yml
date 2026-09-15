@@ -27,3 +27,5 @@ jobs:
           python-version: "3.13"
       - run: pip install -e ".[dev]"
       - run: python -m pytest tests/unit tests/integration --cov=selma --cov-report=term-missing
+        env:
+          PYTHONTRACEMALLOC: "25"
