@@ -261,6 +261,95 @@ class TestRunLoop:
 
         assert agent.state.messages[2].content == "Error: kaputt"
 
+    # ── Safety-Net: Tool-Turn-Event-Reihenfolge + Fehler-Pfade ──
+    # Vor der P2-Refactor von _run_loop wird die Event-Reihenfolge
+    # (tool_start VOR tool_end, tool_end VOR nächstem tool_start,
+    # Turn-2 turn_start VOR message_update) und das gleichzeitige
+    # Text+Tool-Mixing fixiert.
+
+    def test_tool_error_events_and_loop_continues(self):
+        """Tool-Exception: Loop bricht NICHT ab, tool_end wird trotzdem
+        emittiert (finally-Pfad), die fehlerhafte Message trägt den Namen."""
+
+        def bad_tool():
+            raise ValueError("kaputt")
+
+        agent, _ = _make_agent(
+            [[_chunk(tool_calls=[_tc(0, tc_id="c1", name="bad", arguments="{}")])], [_chunk(content="ok")]],
+            tools=[_tool("bad", bad_tool)],
+        )
+        events = []
+        agent.subscribe(events.append)
+
+        _run(_run_prompt(agent))
+
+        # Exakte Reihenfolge — insbesondere tool_start < tool_end < turn_start(2)
+        assert [e.type for e in events] == [
+            "prompt",
+            "agent_start",
+            "turn_start",
+            "turn_end",
+            "message_end",
+            "tool_start",
+            "tool_end",
+            "turn_start",
+            "message_update",
+            "turn_end",
+            "message_end",
+            "agent_end",
+        ]
+        start, end = events[5], events[6]
+        assert start.payload.name == "bad"
+        assert end.payload.name == "bad"
+        assert start.payload is end.payload  # gleicher ToolCallRequest-Request
+        # Loop läuft bis zum Abschluss
+        assert agent.state.is_streaming is False
+        assert agent.state.messages[-1].content == "ok"
+
+    def test_text_and_tool_calls_in_same_turn(self):
+        """Gleichzeitiges Text- + Tool-Handling: Text-Fragmente UND Tool-Call
+        im selben Assistant-Block; der Text landet als content der
+        Tool-Message, event-Reihenfolge bleibt Message-basiert."""
+
+        def echo(value):
+            return f"val={value}"
+
+        turn1 = [
+            _chunk(content="Kurz "),
+            _chunk(content="gedacht…", tool_calls=[_tc(0, tc_id="c1", name="echo", arguments='{"value": "x"}')]),
+        ]
+        agent, _ = _make_agent([turn1, [_chunk(content="Ergebnis")]], tools=[_tool("echo", echo)])
+        events = []
+        agent.subscribe(events.append)
+
+        _run(_run_prompt(agent))
+
+        assert [e.type for e in events] == [
+            "prompt",
+            "agent_start",
+            "turn_start",
+            "message_update",
+            "message_update",
+            "turn_end",
+            "message_end",
+            "tool_start",
+            "tool_end",
+            "turn_start",
+            "message_update",
+            "turn_end",
+            "message_end",
+            "agent_end",
+        ]
+        # Assistant-Message: Text UND Tool-Call in einem Block
+        assistant = agent.state.messages[1]
+        assert assistant.role == "assistant"
+        assert assistant.content == "Kurz gedacht…"
+        assert len(assistant.tool_calls) == 1
+        assert assistant.tool_calls[0].name == "echo"
+        # Tool-Ergebnis folgt der Message
+        assert agent.state.messages[2].role == "tool"
+        assert agent.state.messages[2].content == "val=x"
+
     def test_invalid_json_arguments_fall_back_to_empty(self):
         calls = []
 

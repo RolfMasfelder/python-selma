@@ -439,3 +439,86 @@ class TestHeartbeatLoop:
 
         alert = run(scenario())
         assert alert == "after none came this"
+
+
+# ── Safety-Net: heartbeat_loop Global-State ──────────────────
+# next_heartbeat_at ist MODUL-GLOBAL (einziges `global` im Repo,
+# REFACTOR_TODO P1#1). Vor dem Refactor wird fixiert:
+#   (a) der Wert wird JEDER Iteration neu gesetzt (Persistenz über
+#       die Iteration, Wert = 'jetzt + interval'),
+#   (b) saubere Isolation: steht nie als Störung in anderen
+#       Test-runs (autouse-Reset-Fixture).
+
+
+class TestHeartbeatGlobalState:
+    @pytest.fixture(autouse=True)
+    def _isolate_global(self):
+        """next_heartbeat_at ist modul-global — Reset vor/nach jedem Test."""
+        original = hb.next_heartbeat_at
+        hb.next_heartbeat_at = None
+        try:
+            yield
+        finally:
+            hb.next_heartbeat_at = original
+
+    def test_next_heartbeat_at_per_iteration_and_isolated(self, tmp_path, monkeypatch):
+        """Wert wird in der Loop-Iteration (vor dem sleep) gesetzt und ist
+        während des Agent-Turns identisch lesbar (Persistenz über die
+        Iteration); zeigt in die Zukunft (jetzt + interval)."""
+        from datetime import datetime, timedelta
+
+        _seed_heartbeat_md(tmp_path)
+
+        captured_during_turn: list[object] = []
+
+        async def fake_turn(config, workspace_dir):
+            captured_during_turn.append(hb.next_heartbeat_at)
+            return "HEARTBEAT_OK"  # ack → silenced, Queue bleibt leer
+
+        monkeypatch.setattr(hb, "run_heartbeat_turn", fake_turn)
+
+        before = datetime.now().astimezone()
+
+        async def scenario():
+            q: asyncio.Queue = asyncio.Queue()
+            task = asyncio.ensure_future(hb.heartbeat_loop(make_cfg(every="1s", target="last"), str(tmp_path), q))
+            try:
+                # Ack wird gesilenced → Queue bleibt leer; auf den ersten Turn
+                # warten, dann abbrechen (Stoppt die Iterations-Folge schnell).
+                deadline = asyncio.get_running_loop().time() + 60
+                while not captured_during_turn:
+                    await asyncio.sleep(0.05)
+                    if asyncio.get_running_loop().time() > deadline:
+                        raise AssertionError("kein Heartbeat-Turn innerhalb der Deadline")
+            finally:
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+
+        run(scenario())
+
+        # (a) Im Agent-Turn sichtbarer Wert: gesetzt (vor dem Sleep) und
+        #     zeigt in die Zukunft (jetzt + interval).
+        assert captured_during_turn[0] is not None
+        assert captured_during_turn[0] > before
+
+        # (b) Nach dem Loop-Ende: Attribut weiterhin belegt (modul-global,
+        #     kein Local-Leak) und noch in der Zukunft (±2s Toleranz bei 1s-Interval)
+        assert hb.next_heartbeat_at is not None
+        assert hb.next_heartbeat_at > before
+        assert hb.next_heartbeat_at < before + timedelta(seconds=3)
+
+    def test_global_isolated_between_test_runs(self):
+        """Autouse-Fixture: zu Teststart ist next_heartbeat_at immer None
+        (kein Stand von vorherigen Test-runs); ein Test, der den Wert
+        setzt, hinterlässt ihn nicht für den nächsten Test."""
+        assert hb.next_heartbeat_at is None
+        # Simuliert 'Test-Verunreinigung', wie sie eine Loop-Iteration hinterlässt:
+        from datetime import datetime, timedelta
+
+        hb.next_heartbeat_at = (datetime.now().astimezone() + timedelta(seconds=1)).replace(microsecond=0)
+        assert hb.next_heartbeat_at is not None
+        # (Nach Test-Ende stellt `_isolate_global` den vorherigen Wert wieder her.)

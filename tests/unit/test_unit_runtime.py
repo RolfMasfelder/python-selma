@@ -466,6 +466,74 @@ class TestAgentCommand:
         run(rt.agent_command("Moin", session_key="k"))
         assert state["run_opts"].timeout_ms == 0
 
+    # ── Safety-Net: vollständiges run_embedded_pi_agent-Konfliktbild ──
+    # Die happy-path-Tests oben prüfen nur 5 der 16 RunEmbeddedPiAgentOptions-
+    # Felder. Vor der P1#5-Refactor von agent_command wird der KONTRAKT ganz
+    # fixiert (inkl. Call-Reihenfolge: genau 1 Attempt), damit ein Refactor,
+    # der ein kwargs verliert, sofort rot macht.
+
+    def test_full_options_contract_and_single_attempt(self, monkeypatch, tmp_path):
+        cfg = SelmaConfig()
+        state = self._install_fakes(monkeypatch, config=cfg)
+        delivery = rt.DeliveryContext(deliver=True, reply_channel="web")
+        abort = asyncio.Event()
+
+        result = run(
+            rt.agent_command(
+                "Safenet",
+                session_key="net",
+                abort_signal=abort,
+                delivery=delivery,
+                runtime=rt.RuntimeEnv(cwd=str(tmp_path)),
+            )
+        )
+
+        # Genau EIN Attempt — kein stilles Doppel-Run
+        assert state["run_calls"] == 1
+
+        # Alle 16 Options-Felder, Feld für Feld fixiert
+        opts = state["run_opts"]
+        assert opts.prompt == "Safenet"
+        assert opts.session_record.session_id == "rec1"  # aus get_session-Fake
+        assert opts.session_file == "/tmp/sess.jsonl"  # aus get_session-Fake
+        assert opts.workspace_dir == str(tmp_path)  # immer runtime.cwd
+        assert opts.provider == "ollama"  # default (kein Override)
+        assert opts.model == "llama-default"  # default
+        assert opts.thinking_level == "low"  # resolve_thinking_default
+        assert opts.timeout_ms == 60_000  # resolve_timeout * 1000
+        assert len(opts.run_id) == 8  # uuid4()[:8]
+        assert opts.run_id == state["lifecycle"][0].run_id  # gleiche ID im Lifecycle-Event
+        assert opts.skills_snapshot.version == "v1"  # aus build_skill_snapshot-Fake
+        assert opts.skills_snapshot.skill_names == []
+        assert opts.config is cfg  # identitätsstabil
+        assert opts.bootstrap_mode == "none"  # detect_bootstrap_mode
+        assert opts.is_new_session is False  # get_session-Fake: False
+        assert opts.abort_signal is abort  # identitätsstabil
+        assert opts.delivery is delivery  # identitätsstabil
+        assert opts.tools_allow is None  # resolve_tools_allow
+
+        # Ergebnis- und Delivery-Kontrakt: dieselbe Instanz geht zurück UND in die Delivery
+        assert result.payloads[0].text == "OK"
+        assert result.meta.session_id == "rec1"
+        assert state["delivered"][0] is result
+        assert state["delivered"][1] is delivery
+
+    def test_is_new_session_flag_follows_get_session(self, monkeypatch):
+        """is_new_session wird 1:1 aus get_session durchgereicht (neue vs. bestehende Session)."""
+        state = self._install_fakes(monkeypatch)
+        monkeypatch.setattr(
+            rt,
+            "get_session",
+            lambda k, i, c, cwd: (
+                SessionStore(store_path="/tmp/s.json"),
+                SessionRecord(session_id="r9", session_key="net"),
+                True,
+                "/tmp/s.jsonl",
+            ),
+        )
+        run(rt.agent_command("Moin", session_key="net"))
+        assert state["run_opts"].is_new_session is True
+
 
 # ════════════════════════════════════════════════════════════
 # Layer 2: pick_fallback_thinking_level
