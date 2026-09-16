@@ -13,7 +13,22 @@ from opentelemetry import trace
 # spans are exported to Phoenix. Otherwise the tracer is a no-op.
 tracer = OITracer(trace.get_tracer("selma-agent"), TraceConfig())
 
-otel_handler: logging.Handler | None = None
+# Privat gehalten (P1#2, 2026-09-15): externe Consumer lesen den Wert über
+# `get_otel_handler()`, Schreiben nur über `set_otel_handler()` (Nutznießer:
+# `test_helper.setup_logger` + tests). So bleibt das Modul-Atribut intern —
+# `global`-Statement NUR im setter.
+_otel_handler: logging.Handler | None = None
+
+
+def get_otel_handler() -> logging.Handler | None:
+    """Aktueller OTel-Log-Handler oder None (wenn setup() nie lief)."""
+    return _otel_handler
+
+
+def set_otel_handler(handler: logging.Handler | None) -> None:
+    """OTel-Log-Handler setzen (von setup() bzw. Tests verwendet)."""
+    global _otel_handler
+    _otel_handler = handler
 
 
 def add_span_infos(**kwargs: Any) -> None:
@@ -41,8 +56,6 @@ def setup(project_name: str = "selma-agent", logging_in_terminal: bool = True, e
         logging_in_terminal: If False, removes the root StreamHandler so logs
             are only exported to Phoenix and not printed to the terminal.
     """
-    global otel_handler
-
     from openinference.instrumentation.openai import OpenAIInstrumentor
     from opentelemetry._logs import set_logger_provider
     from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
@@ -60,22 +73,13 @@ def setup(project_name: str = "selma-agent", logging_in_terminal: bool = True, e
     set_logger_provider(logger_provider)
 
     # Bridge: forward Python log records into OTel (span context is preserved).
-    otel_handler = LoggingHandler(logger_provider=logger_provider)
+    handler = LoggingHandler(logger_provider=logger_provider)
+    set_otel_handler(handler)
     root = logging.getLogger()
-
-    # """
-    #     root.addHandler(otel_handler)
-
-    #     if not logging_in_terminal:
-    #         for h in root.handlers[:]:
-    #             if isinstance(h, logging.StreamHandler) and h is not otel_handler:
-    #                 root.removeHandler(h)
-
-    # """
 
     if not logging_in_terminal:
         for h in root.handlers[:]:
             if isinstance(h, logging.StreamHandler):
                 root.removeHandler(h)
 
-    root.addHandler(otel_handler)
+    root.addHandler(handler)

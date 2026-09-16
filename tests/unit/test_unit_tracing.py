@@ -26,17 +26,18 @@ def test_trace_and_log_outside_span_is_noop(caplog):
 
 def test_setup_registers_providers(monkeypatch):
     """setup() ohne Endpoint: initialisiert LoggerProvider + otel_handler."""
-    handler_before = tracing.otel_handler
+    handler_before = tracing.get_otel_handler()
     try:
         tracing.setup(project_name="selma-tests", logging_in_terminal=True, endpoint=None)
 
         from opentelemetry._logs import get_logger_provider
 
         assert get_logger_provider() is not None
-        assert tracing.otel_handler is not None
+        current = tracing.get_otel_handler()
+        assert current is not None
 
         # Root-Logger hat den otel-handler bekommen
-        assert any(h is tracing.otel_handler for h in logging.getLogger().handlers)
+        assert any(h is current for h in logging.getLogger().handlers)
 
         # und es funktioniert ohne active span:
         tracing.add_span_infos(k="v", n=7)
@@ -44,9 +45,10 @@ def test_setup_registers_providers(monkeypatch):
         tracing.trace_and_log(logger, "nach setup")
     finally:
         # Aufräumen: globalen Zustand zurücksetzen
-        if tracing.otel_handler is not None:
+        current = tracing.get_otel_handler()
+        if current is not None:
             root = logging.getLogger()
-            if any(h is tracing.otel_handler for h in root.handlers):
-                root.removeHandler(tracing.otel_handler)
+            if any(h is current for h in root.handlers):
+                root.removeHandler(current)
         # handler_before war vor dem Test — einfach zurücksetzen
-        tracing.otel_handler = handler_before
+        tracing.set_otel_handler(handler_before)

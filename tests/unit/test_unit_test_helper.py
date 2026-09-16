@@ -15,7 +15,7 @@ from selma import test_helper
 def test_setup_logger_basic_configured():
     """Logger bekommt Level, propagate aus, genau ein StreamHandler."""
     name = "test_helper.unit.basic"
-    with patch.object(test_helper.tracing, "otel_handler", None):
+    with patch.object(test_helper.tracing, "get_otel_handler", lambda: None):
         test_helper.setup_logger(name)
 
     log = logging.getLogger(name)
@@ -35,7 +35,7 @@ def test_setup_logger_basic_configured():
 
 def test_setup_logger_custom_level():
     name = "test_helper.unit.level"
-    with patch.object(test_helper.tracing, "otel_handler", None):
+    with patch.object(test_helper.tracing, "get_otel_handler", lambda: None):
         test_helper.setup_logger(name, level=logging.WARNING)
     log = logging.getLogger(name)
     assert log.level == logging.WARNING
@@ -43,10 +43,10 @@ def test_setup_logger_custom_level():
 
 
 def test_setup_logger_adds_otel_handler_when_present():
-    """Wenn tracing.otel_handler gesetzt ist, wird er dem Logger hinzugefügt."""
+    """Wenn get_otel_handler() einen Handler liefert, wird er dem Logger hinzugefügt."""
     name = "test_helper.unit.otel"
     fake_otel = logging.StreamHandler()
-    with patch.object(test_helper.tracing, "otel_handler", fake_otel):
+    with patch.object(test_helper.tracing, "get_otel_handler", lambda: fake_otel):
         test_helper.setup_logger(name)
     log = logging.getLogger(name)
     stream_handlers = [h for h in log.handlers if isinstance(h, logging.StreamHandler)]
