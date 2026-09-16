@@ -30,7 +30,24 @@ from selma.helper import get_workspace
 logger = logging.getLogger(__name__)
 
 # Tracks when the next heartbeat will fire; None when disabled or not yet started.
-next_heartbeat_at: datetime | None = None
+# Kapselt den modul-globalen State hinter expliziten Accessors (siehe
+# `get_next_heartbeat_at`/`set_next_heartbeat_at`) — bewusst kein Local,
+# da es einen echten externen Consumer gibt: `command_manager` liest den
+# Wert für die /status-Ausgabe, und `heartbeat_loop` läuft als einziger
+# Task pro Prozess (gateway.py). P1#1, REFACTOR_TODO.md.
+_next_heartbeat_at: datetime | None = None
+
+
+def get_next_heartbeat_at() -> datetime | None:
+    """Returns the scheduled next-heartbeat time, or None if (not yet) set."""
+    return _next_heartbeat_at
+
+
+def set_next_heartbeat_at(value: datetime | None) -> None:
+    """Sets the scheduled next-heartbeat time."""
+    global _next_heartbeat_at
+    _next_heartbeat_at = value
+
 
 HEARTBEAT_TOKEN = "HEARTBEAT_OK"
 HEARTBEAT_TRANSCRIPT_PROMPT = "[Selma heartbeat]"
@@ -251,8 +268,7 @@ async def heartbeat_loop(
     logger.info("Heartbeat started | every=%s (%ds)", config.heartbeat.every, interval_s)
 
     while True:
-        global next_heartbeat_at
-        next_heartbeat_at = (datetime.now().astimezone() + timedelta(seconds=interval_s)).replace(microsecond=0)
+        set_next_heartbeat_at((datetime.now().astimezone() + timedelta(seconds=interval_s)).replace(microsecond=0))
         await asyncio.sleep(interval_s)
 
         # Active hours check

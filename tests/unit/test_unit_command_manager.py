@@ -492,7 +492,7 @@ def test_status_next_heartbeat_shown_when_configured(tmp_path: Path, monkeypatch
 
     import selma.heartbeat as hb
 
-    monkeypatch.setattr(hb, "next_heartbeat_at", datetime.now(UTC).replace(microsecond=0))
+    monkeypatch.setattr(hb, "get_next_heartbeat_at", lambda: datetime.now(UTC).replace(microsecond=0))
     out = _h(mgr, "/status", session_key="agent:main:x")
     # next_heartbeat_at gesetzt + every != off → Zeile zeigt eine Uhrzeit, kein "—"
     assert "`hb.next`    " in out and "`hb.next`    —" not in out

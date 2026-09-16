@@ -16,10 +16,14 @@ Vorgaben (wie bei den Coverage-Runden):
 
 ## P1 — Kleine, lokal begrenzte Fixes (je ~1 Runde)
 
-### 1. `heartbeat.py:254` — Modul-ebene Globalstate (`global next_heartbeat_at`)
-- **Smell:** Hidden mutable module state + `global`-Statement (in diesem Repo sonst nirgends).
-- **Fix:** `next_heartbeat_at` als Local in `heartbeat_loop()` führen (L236-300, die `global` ist innen). Prüfen, ob andere Stellen die Variable lesen (grep `next_heartbeat_at`).
-- **Risk:** niedrig (eine Funktion).
+### 1. ~~`heartbeat.py:254` —`global next_heartbeat_at`~~ ✅ **erledigt 2026-09-15**
+- **Ursprünglicher Smell:** Hidden mutable module state + `global`-Statement (in diesem Repo sonst nirgends).
+- **Consumer-Analyse (2026-09-15, vor dem Fix):**
+  - EXTERNE Consumer: `command_manager.py:276` (liest für `/status`-Ausgabe) + `test_helper.py`-analoge Test-Stelle `tests/unit/test_unit_command_manager.py` (setzt vor `/status`).
+  - INTERNE Consumer: `heartbeat_loop()` selbst (einziges `global`-Statement, gateway-launched Loop).
+  - **Ergebnis:** ECHTE externe Consumer vorhanden → **Kapselung statt Verlokalisierung** (Local würde `command_manager` kaputt machen).
+- **Umgesetzt (2026-09-15):** `next_heartbeat_at` → `_next_heartbeat_at` (privat), mit expliziten Accessors `get_next_heartbeat_at()`/`set_next_heartbeat_at()`; Consumer `command_manager.py` + `test_unit_command_manager.py` + `test_unit_heartbeat_async.py` umgestellt auf Accessor-API. `global`-Statement bleibt NUR im Setter (einziges im Repo neben `tracing.py:44`, P1#2). Begründung + Consumer-Nachweis in `memory/2026-09-15.md`.
+- **Risk:** niedrig — eine Funktion + 1 externer Consumer, Suite 729 grün, heartbeat.py 100 % Coverage.
 
 ### 2. `tracing.py:44` — Modul-ebene Globalstate (`global otel_handler`)
 - **Smell:** Wie #1, plus: `setup()` hat Modul-Ebenen-Side-Effects.
