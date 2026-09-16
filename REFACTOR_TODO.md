@@ -36,11 +36,12 @@ Vorgaben (wie bei den Coverage-Runden):
 - **Vorgehen je Stelle:** Entscheidung dokumentiert treffen — (a) specific-Exceptions, (b) broad mit Begründungs-Kommentar `# broad by design: …`.
 - **Treffer-Liste:** `agent.py:277,311,384` · `agent_runtime.py:372` · `agent_session.py:606` · `command_manager.py:127` · `compaction.py:93,118` · `config.py:225` · `dashboard.py:101,200` · `gateway.py:119,138,179,208` · `heartbeat.py:80,276` · `memory_index.py:80,358,420` · `my_tools.py:709,767` · `runtime.py:250,448,629,984` · `session_store.py:194,208,250` · `setup.py:104` · `tools.py:45,89,209,287`
 
-### 4. `typing.Any`-Überfluss (14 Stellen)
+### 4. ~~`typing.Any`-Überfluss (14 Stellen)~~ ✅ **erledigt 2026-09-15**
 - **Smell:** `Any` als Flucht-Valve; hier sind die meisten **gerechtfertigt** (Event-Payloads, Channel-Adapter-Protokoll, `raw`-Fields), aber `agent.py:103 payload: Any = None` und `tracing.py:19 add_span_infos(**kwargs: Any)` sind die Kandidaten am ehesten enger typbar.
 - **Vorgehen:** Nur Stellen angehen, wo ein konkretes Typed-Modell existiert und `Any` redundant ist. Liste:
   `agent.py:103,377` · `channel_adapter.py:21,24,26,27` (Protokoll — hier sind `Any` sinnvoll, ggf. `TypeVar`) · `config.py:79` (Pydantic-Validator, `Any` korrekt) · `data.py:21` · `task_manager.py:20` · `tracing.py:19,25`
 - **Risk:** niedrig.
+- **Umsetzung (2026-09-15, Commit `0eb709b`):** `AgentEventPayload = AgentMessage | ToolCallRequest | str | None` (alias + Kommentar-Mappe je Event-Typ) in agent.py; `SpanAttributeValue = float | bool | int | str | None` + None-Skip in tracing.py; `is_enabled/start(config: SelmaConfig)` in channel_adapter.py. Consumer-Narrowing: agent_runtime.py EventSubscriber auf `isinstance`-Checks, agent_session.py `_on_agent_event` mit `assert isinstance(…, AssistantMessage)` (Statt-Falsy-Tests). Tests: SimpleNamespace-Payload-Fakes → echte Pydantic-Modelle (AssistantMessage/ToolCallRequest) in test_unit_agent_runtime.py + test_unit_runtime.py (Stolperstein #7 — Pydantic-Modelle nicht mit SimpleNamespace fake-en). Restliche `Any`=4 Stellen: dokumentiert begründet (`raw: Any`-Protokoll, validate_tools_allow-Validator). Zahlen: **729 passed / 0 failed**, ruff+mypy grün, Gesamt-Coverage **99 %**, `find ~/.selma` → 0.
 
 ### 5. `system_prompt.py:575 build_agent_system_prompt(params)` — **187 Zeilen**
 - **Smell:** Long function + Feature envy (liest an 10+ parametern aus `params` bzw. Sections).
