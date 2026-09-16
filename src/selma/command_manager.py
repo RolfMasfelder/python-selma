@@ -273,7 +273,7 @@ class CommandManager:
         # Next heartbeat time
         import selma.heartbeat as _hb_mod
 
-        hb_next = _hb_mod.next_heartbeat_at
+        hb_next = _hb_mod.get_next_heartbeat_at()
         hb_next_str = hb_next.strftime("%H:%M:%S") if hb_next and hb_every != "off" else "—"
 
         lines = [
