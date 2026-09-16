@@ -16,5 +16,6 @@ def setup_logger(name: str, level: int = logging.DEBUG) -> None:
         )
     )
     log.addHandler(handler)
-    if tracing.otel_handler is not None:
-        log.addHandler(tracing.otel_handler)
+    otel = tracing.get_otel_handler()
+    if otel is not None:
+        log.addHandler(otel)
