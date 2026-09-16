@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 
 from selma import runtime as rt
-from selma.agent import AgentEvent, AgentTool, ToolSchema
+from selma.agent import AgentEvent, AgentTool, ToolCallRequest, ToolSchema
 from selma.config import SelmaConfig
 from selma.session_store import SessionRecord, SessionStore, SkillsSnapshot
 
@@ -992,7 +992,7 @@ class TestSubscribeOutputCollector:
         session = FakeSession(message=None)
         out, _ = rt.subscribe_output_collector(dlv, session)
         tool_event = AgentEvent(
-            type="tool_start", payload=types.SimpleNamespace(name="read", arguments={"path": "f.txt"})
+            type="tool_start", payload=ToolCallRequest(id="tc1", name="read", arguments={"path": "f.txt"})
         )
         for sub in session.subscribers:
             sub(tool_event)

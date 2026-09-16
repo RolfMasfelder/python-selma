@@ -65,6 +65,10 @@ class ToolResultMessage(BaseModel):
 
 
 AgentMessage = UserMessage | AssistantMessage | ToolResultMessage
+# AgentEvent-Payload-Typ je Event-Typ (P1#4, 2026-09-15 — war Any):
+#   message_update → str, agent_end/prompt → None, message_end → AgentMessage,
+#   tool_start/tool_end → ToolCallRequest.
+AgentEventPayload = AgentMessage | ToolCallRequest | str | None
 
 ThinkingLevel = Literal["low", "medium", "high"] | None
 
@@ -100,7 +104,7 @@ class AgentOptions(BaseModel):
 
 class AgentEvent(BaseModel):
     type: str
-    payload: Any = None
+    payload: AgentEventPayload = None
 
 
 # ─── AGENT ──────────────────────────────────────────────────
@@ -374,7 +378,7 @@ class Agent:
     def _log_allowed(self, event_type: str) -> bool:
         return event_type not in self._options.logging_event_filter
 
-    def _emit(self, event_type: str, payload: Any = None) -> None:
+    def _emit(self, event_type: str, payload: AgentEventPayload = None) -> None:
         event = AgentEvent(type=event_type, payload=payload)
         if self._log_allowed(event_type):
             trace_and_log(logger, f"Event | type={event_type} payload={payload}")
