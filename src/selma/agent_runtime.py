@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from selma.agent import AgentEvent, AgentTool
+from selma.agent import AgentEvent, AgentTool, AssistantMessage, ToolCallRequest
 from selma.agent_session import AgentSession, CreateSessionOptions, create_agent_session
 from selma.data import NormalizedTurnInput
 from selma.helper import get_workspace, resolve_state_dir
@@ -247,24 +247,24 @@ class EventSubscriber:
         def on_event(event: AgentEvent) -> None:
             match event.type:
                 case "message_update":
-                    if self._on_chunk and event.payload:
+                    if self._on_chunk and isinstance(event.payload, str):
                         spawn_background_task(self._on_chunk(event.payload))
 
                 case "message_end":
                     msg = event.payload
-                    if msg and msg.content:
+                    if isinstance(msg, AssistantMessage) and msg.content:
                         self.final_reply = msg.content
                         if self._on_block_reply:
                             spawn_background_task(self._on_block_reply(msg.content))
 
                 case "tool_start":
                     tc = event.payload
-                    if tc:
+                    if isinstance(tc, ToolCallRequest):
                         logger.info("Tool start | name=%s", tc.name)
 
                 case "tool_end":
                     tc = event.payload
-                    if tc:
+                    if isinstance(tc, ToolCallRequest):
                         logger.info("Tool end | name=%s", tc.name)
 
                 case "agent_end":

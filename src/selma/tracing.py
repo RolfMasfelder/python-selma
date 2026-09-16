@@ -8,6 +8,11 @@ from openinference.instrumentation._tracers import OITracer
 from openinference.instrumentation.config import TraceConfig
 from opentelemetry import trace
 
+# Erlaubte Wertetypen für Span-Attribute / Log-Payloads.
+# OTel-Span-Attribute sind typisiert; für Log-Payloads (trace_and_log) ist
+# zusätzlich None erlaubt, da Callers None als "fehlender Wert" übergeben.
+SpanAttributeValue = float | bool | int | str | None
+
 # Wrap the global OTel tracer with OpenInference semantics.
 # If setup() was called before this module is imported,
 # spans are exported to Phoenix. Otherwise the tracer is a no-op.
@@ -31,13 +36,15 @@ def set_otel_handler(handler: logging.Handler | None) -> None:
     _otel_handler = handler
 
 
-def add_span_infos(**kwargs: Any) -> None:
+def add_span_infos(**kwargs: SpanAttributeValue) -> None:
     span = trace.get_current_span()
     for key, value in kwargs.items():
+        if value is None:
+            continue  # OTel-Span-Attribute akzeptieren kein None (P1#4)
         span.set_attribute(key, value)
 
 
-def trace_and_log(logger: logging.Logger, payload: Any) -> None:
+def trace_and_log(logger: logging.Logger, payload: SpanAttributeValue) -> None:
     trace.get_current_span().add_event(str(payload))
     logger.debug("%s", payload)
 

@@ -483,8 +483,8 @@ class AgentSession:
     def _on_agent_event(self, event: AgentEvent) -> None:
         """Writes agent events as messages to the JSONL file."""
         if event.type == "message_end":
-            msg: AssistantMessage = event.payload
-            self._persist_message(msg)
+            assert isinstance(event.payload, AssistantMessage)  # "message_end" trägt immer AssistantMessage
+            self._persist_message(event.payload)
 
     def _persist_message(self, msg: AgentMessage) -> None:
         """Writes each message immediately to JSONL."""

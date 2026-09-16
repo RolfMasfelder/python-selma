@@ -22,7 +22,7 @@ from typing import Any, cast
 import pytest
 
 from selma import agent_runtime as ar
-from selma.agent import AgentEvent, AgentOptions, AgentTool, ToolSchema
+from selma.agent import AgentEvent, AgentOptions, AgentTool, AssistantMessage, ToolCallRequest, ToolSchema
 from selma.agent_session import CreateSessionOptions
 from selma.data import NormalizedTurnInput
 from selma.my_system_prompt import BuildSystemPromptOptions, ContextFile
@@ -104,7 +104,7 @@ class FakeSession:
         # Der Listener ist synchron (EventSubscriber.get_listener()).
         if self._final_reply is not None:
             for listener in list(self.subscribed):
-                listener(AgentEvent(type="message_end", payload=types.SimpleNamespace(content=self._final_reply)))
+                listener(AgentEvent(type="message_end", payload=AssistantMessage(content=self._final_reply)))
 
 
 # ── Fake-Factory mit echter Cache-Logik ──────────────────────
@@ -426,7 +426,7 @@ class TestEventSubscriber:
 
         sub = ar.EventSubscriber(on_block_reply=on_block)
         with mock.patch.object(ar, "spawn_background_task", fake_spawn):
-            sub.get_listener()(AgentEvent(type="message_end", payload=types.SimpleNamespace(content="Ende!")))
+            sub.get_listener()(AgentEvent(type="message_end", payload=AssistantMessage(content="Ende!")))
         assert sub.final_reply == "Ende!"
         assert len(coros) == 1
         run(coros[0])
@@ -438,7 +438,7 @@ class TestEventSubscriber:
         with mock.patch.object(ar, "spawn_background_task", fake_spawn):
             listener = sub.get_listener()
             listener(AgentEvent(type="message_end", payload=None))
-            listener(AgentEvent(type="message_end", payload=types.SimpleNamespace(content="")))
+            listener(AgentEvent(type="message_end", payload=AssistantMessage(content="")))
         assert coros == []
         assert sub.final_reply == ""
 
@@ -446,7 +446,7 @@ class TestEventSubscriber:
         coros, fake_spawn = _captured_spawn()
         sub = ar.EventSubscriber()
         with mock.patch.object(ar, "spawn_background_task", fake_spawn):
-            sub.get_listener()(AgentEvent(type="message_end", payload=types.SimpleNamespace(content="X")))
+            sub.get_listener()(AgentEvent(type="message_end", payload=AssistantMessage(content="X")))
         assert sub.final_reply == "X"
         assert coros == []
 
@@ -458,8 +458,8 @@ class TestEventSubscriber:
             caplog.at_level(logging.INFO, logger="selma.agent_runtime"),
         ):
             listener = sub.get_listener()
-            listener(AgentEvent(type="tool_start", payload=types.SimpleNamespace(name="ls")))
-            listener(AgentEvent(type="tool_end", payload=types.SimpleNamespace(name="ls")))
+            listener(AgentEvent(type="tool_start", payload=ToolCallRequest(id="1", name="ls", arguments={})))
+            listener(AgentEvent(type="tool_end", payload=ToolCallRequest(id="1", name="ls", arguments={})))
             listener(AgentEvent(type="tool_start", payload=None))
             listener(AgentEvent(type="tool_end", payload=None))
         assert coros == []
