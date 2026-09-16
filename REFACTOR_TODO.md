@@ -25,10 +25,10 @@ Vorgaben (wie bei den Coverage-Runden):
 - **Umgesetzt (2026-09-15):** `next_heartbeat_at` → `_next_heartbeat_at` (privat), mit expliziten Accessors `get_next_heartbeat_at()`/`set_next_heartbeat_at()`; Consumer `command_manager.py` + `test_unit_command_manager.py` + `test_unit_heartbeat_async.py` umgestellt auf Accessor-API. `global`-Statement bleibt NUR im Setter (einziges im Repo neben `tracing.py:44`, P1#2). Begründung + Consumer-Nachweis in `memory/2026-09-15.md`.
 - **Risk:** niedrig — eine Funktion + 1 externer Consumer, Suite 729 grün, heartbeat.py 100 % Coverage.
 
-### 2. `tracing.py:44` — Modul-ebene Globalstate (`global otel_handler`)
-- **Smell:** Wie #1, plus: `setup()` hat Modul-Ebenen-Side-Effects.
-- **Fix:** Handler anstelle von Global in die Aufrufer-Konfiguration legen, oder explizite `get_handler()`/`set_handler()`-Methode an ein kleines Modul-Objekt.
-- **Risk:** mittel (Aufrufer in `runtime.py`/`agent.py` anpassen) — erst Consumer greppen.
+### 2. ~~`tracing.py:44` — Modul-ebene Globalstate (`global otel_handler`)~~ ✅ **erledigt 2026-09-15**
+- **Consumer-Analyse:** `test_helper.py:19-20` (liest für `setup_logger`), `tests/unit/test_unit_tracing.py` (liest + setzt Cleanup), `tests/unit/test_unit_test_helper.py` (patcht vor `setup_logger`). Keine `runtime.py`/`agent.py`-Consumer — die TODO-Angabe war konservativ, Grep hat sie widerlegt.
+- **Umgesetzt:** `otel_handler` → `_otel_handler` (privat) + Accessors `get_otel_handler()`/`set_otel_handler()`; `global` NUR im setter. `setup()` benutzt jetzt einen lokalen `handler` + `set_otel_handler(handler)` (kommentierter Block weg). Suite 729 grün, tracing.py 89 %, ruff/mypy grün.
+- **Global-Bestand danach:** genau 1 `global`-Statement im Repo — `heartbeat.py:48` (im P1#1-Setter, dokumentiert + begründet).
 
 ### 3. Breite-`except Exception`-Blöcke (34 Stellen, s. Liste unten)
 - **Smell:** Bare `except Exception` + nur Log → Fehler-Typ-Info geht verloren; in Teilklassen eher `catch specific`.
