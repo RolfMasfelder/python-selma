@@ -448,6 +448,140 @@ def make_ls_tool(cwd: str) -> AgentTool:
     )
 
 
+# DEFAULT_GREP_LIMIT: default cap of match lines (100) — see make_grep_tool().
+DEFAULT_GREP_LIMIT = 100
+
+
+def _grep_rg_available() -> bool:
+    try:
+        subprocess.run(["rg", "--version"], capture_output=True, timeout=3)
+        return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _grep_with_rg(
+    pattern: str,
+    search_path: str,
+    glob: str | None,
+    ignore_case: bool,
+    literal: bool,
+    context: int,
+    limit: int,
+) -> tuple[list[str], bool]:
+    args = ["rg", "--line-number", "--color=never", "--hidden", "--no-heading"]
+    if ignore_case:
+        args.append("--ignore-case")
+    if literal:
+        args.append("--fixed-strings")
+    if glob:
+        args.extend(["--glob", glob])
+    if context > 0:
+        args.extend(["-C", str(context)])
+    # rg --max-count limits per-file; use --max-count with a high value
+    # and slice afterwards for a global limit approximation
+    args.extend([pattern, search_path])
+
+    try:
+        result = subprocess.run(args, capture_output=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return ["Error: grep timed out"], False
+    except FileNotFoundError:
+        return [], False
+
+    lines = result.stdout.decode("utf-8", errors="replace").splitlines()
+    if not lines:
+        return [], False
+    limit_reached = len(lines) > limit
+    return lines[:limit], limit_reached
+
+
+def _grep_with_python(
+    pattern: str,
+    search_path: Path,
+    glob: str | None,
+    ignore_case: bool,
+    literal: bool,
+    context: int,
+    limit: int,
+) -> tuple[list[str], bool]:
+    flags = re.IGNORECASE if ignore_case else 0
+    try:
+        regex = re.compile(re.escape(pattern) if literal else pattern, flags)
+    except re.error as e:
+        return [f"Error: invalid regex: {e}"], False
+
+    if search_path.is_file():
+        files = [search_path]
+    elif glob:
+        files = sorted(search_path.rglob(glob))
+    else:
+        files = sorted(p for p in search_path.rglob("*") if p.is_file())
+
+    output: list[str] = []
+    limit_reached = False
+
+    for fp in files:
+        try:
+            file_lines = fp.read_text(encoding="utf-8", errors="replace").split("\n")
+        except OSError:
+            continue
+
+        try:
+            rel = str(fp.relative_to(search_path)).replace("\\", "/")
+        except ValueError:
+            rel = fp.name
+
+        for lineno, line in enumerate(file_lines, 1):
+            if len(output) >= limit:
+                limit_reached = True
+                break
+            if regex.search(line):
+                display = line if len(line) <= GREP_MAX_LINE_LENGTH else line[:GREP_MAX_LINE_LENGTH] + "... [truncated]"
+                # Context lines before
+                for ci in range(context, 0, -1):
+                    bi = lineno - 1 - ci
+                    if bi >= 0:
+                        output.append(f"{rel}-{lineno - ci}- {file_lines[bi]}")
+                output.append(f"{rel}:{lineno}: {display}")
+                # Context lines after
+                for ci in range(1, context + 1):
+                    ai = lineno - 1 + ci
+                    if ai < len(file_lines):
+                        output.append(f"{rel}-{lineno + ci}- {file_lines[ai]}")
+        if limit_reached:
+            break
+
+    return output, limit_reached
+
+
+def _format_grep_output(
+    lines: list[str],
+    limit_reached: bool,
+    effective_limit: int,
+) -> str:
+    """Shared post-processing for both grep backends: truncation, byte budget, notices."""
+    if not lines:
+        return "No matches found"
+
+    raw_output = "\n".join(lines)
+    total_bytes = len(raw_output.encode("utf-8"))
+    notices: list[str] = []
+
+    if limit_reached:
+        notices.append(
+            f"{effective_limit} matches limit reached. Use limit={effective_limit * 2} for more, or refine pattern"
+        )
+    if total_bytes > DEFAULT_MAX_BYTES:
+        raw_output = _truncate_head(raw_output, max_lines=effective_limit, max_bytes=DEFAULT_MAX_BYTES)
+        notices.append(f"{_format_size(DEFAULT_MAX_BYTES)} limit reached")
+
+    output = raw_output
+    if notices:
+        output += "\n\n[" + ". ".join(notices) + "]"
+    return output
+
+
 def make_grep_tool(cwd: str) -> AgentTool:
     """
     Search file contents for a pattern.
@@ -455,109 +589,6 @@ def make_grep_tool(cwd: str) -> AgentTool:
     Output truncated to 100 matches or 50KB.
     Mirrors createGrepTool() from grep.ts.
     """
-    DEFAULT_GREP_LIMIT = 100
-
-    def _rg_available() -> bool:
-        try:
-            subprocess.run(["rg", "--version"], capture_output=True, timeout=3)
-            return True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
-
-    def _grep_rg(
-        pattern: str,
-        search_path: str,
-        glob: str | None,
-        ignore_case: bool,
-        literal: bool,
-        context: int,
-        limit: int,
-    ) -> tuple[list[str], bool]:
-        args = ["rg", "--line-number", "--color=never", "--hidden", "--no-heading"]
-        if ignore_case:
-            args.append("--ignore-case")
-        if literal:
-            args.append("--fixed-strings")
-        if glob:
-            args.extend(["--glob", glob])
-        if context > 0:
-            args.extend(["-C", str(context)])
-        # rg --max-count limits per-file; use --max-count with a high value
-        # and slice afterwards for a global limit approximation
-        args.extend([pattern, search_path])
-
-        try:
-            result = subprocess.run(args, capture_output=True, timeout=30)
-        except subprocess.TimeoutExpired:
-            return ["Error: grep timed out"], False
-        except FileNotFoundError:
-            return [], False
-
-        lines = result.stdout.decode("utf-8", errors="replace").splitlines()
-        if not lines:
-            return [], False
-        limit_reached = len(lines) > limit
-        return lines[:limit], limit_reached
-
-    def _grep_python(
-        pattern: str,
-        search_path: Path,
-        glob: str | None,
-        ignore_case: bool,
-        literal: bool,
-        context: int,
-        limit: int,
-    ) -> tuple[list[str], bool]:
-        flags = re.IGNORECASE if ignore_case else 0
-        try:
-            regex = re.compile(re.escape(pattern) if literal else pattern, flags)
-        except re.error as e:
-            return [f"Error: invalid regex: {e}"], False
-
-        if search_path.is_file():
-            files = [search_path]
-        elif glob:
-            files = sorted(search_path.rglob(glob))
-        else:
-            files = sorted(p for p in search_path.rglob("*") if p.is_file())
-
-        output: list[str] = []
-        limit_reached = False
-
-        for fp in files:
-            try:
-                file_lines = fp.read_text(encoding="utf-8", errors="replace").split("\n")
-            except OSError:
-                continue
-
-            try:
-                rel = str(fp.relative_to(search_path)).replace("\\", "/")
-            except ValueError:
-                rel = fp.name
-
-            for lineno, line in enumerate(file_lines, 1):
-                if len(output) >= limit:
-                    limit_reached = True
-                    break
-                if regex.search(line):
-                    display = (
-                        line if len(line) <= GREP_MAX_LINE_LENGTH else line[:GREP_MAX_LINE_LENGTH] + "... [truncated]"
-                    )
-                    # Context lines before
-                    for ci in range(context, 0, -1):
-                        bi = lineno - 1 - ci
-                        if bi >= 0:
-                            output.append(f"{rel}-{lineno - ci}- {file_lines[bi]}")
-                    output.append(f"{rel}:{lineno}: {display}")
-                    # Context lines after
-                    for ci in range(1, context + 1):
-                        ai = lineno - 1 + ci
-                        if ai < len(file_lines):
-                            output.append(f"{rel}-{lineno + ci}- {file_lines[ai]}")
-            if limit_reached:
-                break
-
-        return output, limit_reached
 
     def execute(
         pattern: str,
@@ -575,8 +606,8 @@ def make_grep_tool(cwd: str) -> AgentTool:
         if not search_path.exists():
             return f"Error: path not found: {search_path}"
 
-        if _rg_available():
-            lines, limit_reached = _grep_rg(
+        if _grep_rg_available():
+            lines, limit_reached = _grep_with_rg(
                 pattern,
                 str(search_path),
                 glob,
@@ -586,7 +617,7 @@ def make_grep_tool(cwd: str) -> AgentTool:
                 effective_limit,
             )
         else:
-            lines, limit_reached = _grep_python(
+            lines, limit_reached = _grep_with_python(
                 pattern,
                 search_path,
                 glob,
@@ -595,26 +626,7 @@ def make_grep_tool(cwd: str) -> AgentTool:
                 context,
                 effective_limit,
             )
-
-        if not lines:
-            return "No matches found"
-
-        raw_output = "\n".join(lines)
-        total_bytes = len(raw_output.encode("utf-8"))
-        notices: list[str] = []
-
-        if limit_reached:
-            notices.append(
-                f"{effective_limit} matches limit reached. Use limit={effective_limit * 2} for more, or refine pattern"
-            )
-        if total_bytes > DEFAULT_MAX_BYTES:
-            raw_output = _truncate_head(raw_output, max_lines=effective_limit, max_bytes=DEFAULT_MAX_BYTES)
-            notices.append(f"{_format_size(DEFAULT_MAX_BYTES)} limit reached")
-
-        output = raw_output
-        if notices:
-            output += "\n\n[" + ". ".join(notices) + "]"
-        return output
+        return _format_grep_output(lines, limit_reached, effective_limit)
 
     return AgentTool(
         name="grep",

@@ -2,7 +2,7 @@
 
 All tool execute() functions are synchronous; tests call them directly.
 Uses tmp_path per test. rg availability is environment-dependent — the
-python grep fallback is tested explicitly via _grep_python.
+python grep fallback is tested explicitly via _grep_with_python.
 """
 
 import subprocess
@@ -52,8 +52,8 @@ def _seed(tmp_path: Path, name: str, content: str) -> Path:
 def no_rg(monkeypatch: pytest.MonkeyPatch) -> None:
     """Force the python (``re``) grep branch by making rg look unavailable.
 
-    ``_rg_available()`` runs ``rg --version``; if that raises FileNotFoundError
-    the tool falls back to ``_grep_python`` deterministically, so tests can
+    ``_grep_rg_available()`` runs ``rg --version``; if that raises FileNotFoundError
+    the tool falls back to ``_grep_with_python`` deterministically, so tests can
     assert the python output format regardless of whether rg is installed.
     """
 
