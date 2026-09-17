@@ -53,11 +53,10 @@ Vorgaben (wie bei den Coverage-Runden):
 
 ## P2 — Mittlere Refactors (je 1-2 Runden)
 
-### 6. `my_tools.py:451 make_grep_tool` — **213 Zeilen** (größte Funktion im Repo)
+### 6. ~~`my_tools.py:451 make_grep_tool` — **213 Zeilen** (größte Funktion im Repo)~~ ✅ **erledigt 2026-09-17**
 - **Smell:** Long function + Duplicated logic (rg-Branch und Python-Fallback teilen ~40 %).
-- **Fix:** Gemeinsame Post-Processing-Schleife (Truncation, `limit`, Byte-Budget) in `_format_matches(lines, …)` extrahieren; die `execute(path, …)`-Innere in 2 Pfade + 1 Shared-Formatter.
-- **ACHTUNG:** Stolperstein #12 (rg-branch `abs:LINE:content` vs Python `rel:LINE: content`) — Form-Tests sind dafür da, gerade **diesen** Unterschied fixieren; beim Refactor nicht "vereinheitlichen".
-- **Coverage:** `my_tools.py` 100 % halten (50+ Tests) — Refactor muss behavior-preserving sein.
+- **Fix (umgesetzt):** `make_grep_tool` → **213 → 91 Zeilen** (Docstring inkl., Body = Path-Resolution + Backend-Auswahl + Delegation). Extrahiert: `DEFAULT_GREP_LIMIT = 100`, `_grep_rg_available()`, `_grep_with_rg(…)->(lines, limit_reached)`, `_grep_with_python(…)`, `_format_grep_output(lines, limit_reached, effective_limit)` (gemeinsame Post-Processing: Truncation, byte-Budget, Notizen). Stolperstein #12 (rg vs python Output-Format) **bewusst NICHT vereinheitlicht** — beide Backends formen ihr Format unverändert weiter, nur das Post-Processing ist shared.
+- **Verifikation:** Differential-Batterie **17 Cases × 3 Backend-Modi (py / rg / rg-Timeout) = 51 × BYTE-IDENTICAL** (modulo tmp-Dir-Pfade), deterministischer Re-Run. `test_unit_my_tools.py` 48 passed (nur Docstring-Referenz `_grep_python`→`_grep_with_python` aktualisiert). Suite **729 passed / 0 failed**, my_tools.py **100 %**, Gesamt 99 %, ruff+mypy grün, `~/.selma` → 0.
 
 ### 7. `agent.py:150 _run_loop` — **135 Zeilen**
 - **Smell:** Long function + Divergent change (ein Loop, mehrere Zustandsübergänge).
