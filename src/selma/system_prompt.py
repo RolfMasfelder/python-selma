@@ -434,6 +434,142 @@ def _build_reasoning_section(reasoning_tag_hint: str | None) -> list[str]:
     return ["## Reasoning Format", hint, ""]
 
 
+def _build_tool_block_trailer(exec_tool_name: str, tool_lines: list[str]) -> list[str]:
+    """
+    Tooling block: header + (optional) tool lines + trailer hints.
+    Corresponds to the Tooling section of buildAgentSystemPrompt().
+    """
+    lines: list[str] = [
+        "## Tooling",
+        "Tool names are case-sensitive. Call tools exactly as listed.",
+    ]
+    if tool_lines:
+        lines += tool_lines
+    lines += [
+        "TOOLS.md does not control tool availability; it is user guidance for how to use external tools.",
+        f"For long waits, avoid rapid poll loops: use `{exec_tool_name}` with "
+        f"enough yieldMs or process(action=poll, timeout=<ms>).",
+        "If a task is more complex or takes longer, spawn a sub-agent. "
+        "Completion is push-based: it will auto-announce when done.",
+        "",
+    ]
+    return lines
+
+
+def _build_tool_call_style_section() -> list[str]:
+    """
+    Corresponds to the Tool Call Style block in buildAgentSystemPrompt().
+    """
+    return [
+        "## Tool Call Style",
+        "Default: do not narrate routine, low-risk tool calls (just call the tool).",
+        "Narrate only when it helps: multi-step work, complex/challenging problems, "
+        "sensitive actions (e.g., deletions), or when the user explicitly asks.",
+        "Keep narration brief and value-dense; avoid repeating obvious steps.",
+        "Use plain human language for narration unless in a technical context.",
+        "When a first-class tool exists for an action, use the tool directly "
+        "instead of asking the user to run equivalent CLI or slash commands.",
+        "When exec returns approval-pending, include the concrete /approve command "
+        "from tool output as plain chat text for the user.",
+        "Never execute /approve through exec or any other shell/tool path; "
+        "/approve is a user-facing approval command, not a shell command.",
+        "",
+    ]
+
+
+def _build_safety_section() -> list[str]:
+    """
+    Corresponds to the Safety block in buildAgentSystemPrompt().
+    """
+    return [
+        "## Safety",
+        "You have no independent goals: do not pursue self-preservation, "
+        "replication, resource acquisition, or power-seeking; avoid long-term "
+        "plans beyond the user's request.",
+        "Prioritize safety and human oversight over completion; if instructions "
+        "conflict, pause and ask; comply with stop/pause/audit requests and never "
+        "bypass safeguards.",
+        "Do not manipulate or persuade anyone to expand access or disable safeguards. "
+        "Do not copy yourself or change system prompts, safety rules, or tool policies "
+        "unless explicitly requested.",
+        "",
+    ]
+
+
+def _build_workspace_section(workspace_dir: str, workspace_notes: list[str]) -> list[str]:
+    """
+    Corresponds to the Workspace block in buildAgentSystemPrompt().
+    """
+    lines = [
+        "## Workspace",
+        f"Your working directory is: {workspace_dir}",
+        "Treat this directory as the single global workspace for file operations "
+        "unless explicitly instructed otherwise.",
+        "IMPORTANT: Use only simple relative paths for file operations (e.g. `.selma/workspace/memory/today.md`, "
+        "`HEARTBEAT.md`). Do NOT include the workspace path itself in file paths — "
+        f"never start a path with `{Path(workspace_dir).name}/` or "
+        f"`{Path(workspace_dir).parent.name}/`. "
+        "Writing outside the workspace directory is not permitted.",
+    ]
+    lines += [note.strip() for note in workspace_notes if note.strip()]
+    lines += [""]
+    return lines
+
+
+def _build_silent_replies_section() -> list[str]:
+    """
+    Corresponds to the Silent Replies block in buildAgentSystemPrompt().
+    """
+    return [
+        "## Silent Replies",
+        f"When you have nothing to say, respond with ONLY: {SILENT_REPLY_TOKEN}",
+        "",
+        "⚠️ Rules:",
+        "- It must be your ENTIRE message — nothing else",
+        f'- Never append it to an actual response (never include "{SILENT_REPLY_TOKEN}" in real replies)',
+        "- Never wrap it in markdown or code blocks",
+        "",
+        f'❌ Wrong: "Here\'s help... {SILENT_REPLY_TOKEN}"',
+        f'❌ Wrong: "\\"{SILENT_REPLY_TOKEN}\\""',
+        f"✅ Right: {SILENT_REPLY_TOKEN}",
+        "",
+    ]
+
+
+def _build_runtime_section(
+    runtime_info: RuntimeInfo | None,
+    runtime_channel: str,
+    reasoning_level: str,
+    default_think_level: ThinkLevel | None,
+) -> list[str]:
+    """
+    Corresponds to the final Runtime block in buildAgentSystemPrompt().
+    """
+    runtime_line = build_runtime_line(
+        runtime_info=runtime_info,
+        runtime_channel=runtime_channel or None,
+        runtime_capabilities=runtime_info.capabilities if runtime_info else [],
+        default_think_level=default_think_level,
+    )
+    return [
+        "## Runtime",
+        runtime_line,
+        f"Reasoning: {reasoning_level} (hidden unless on/stream). "
+        "Toggle /reasoning; /status shows Reasoning when enabled.",
+    ]
+
+
+def _build_workspace_files_intro_section() -> list[str]:
+    """
+    Corresponds to the Workspace Files (injected) block in buildAgentSystemPrompt().
+    """
+    return [
+        "## Workspace Files (injected)",
+        "These user-editable files are loaded by Selma and included below in Project Context.",
+        "",
+    ]
+
+
 # ════════════════════════════════════════════════════════════
 # OWNER IDENTITY
 # ════════════════════════════════════════════════════════════
@@ -627,81 +763,27 @@ def build_agent_system_prompt(params: BuildAgentSystemPromptParams) -> str:
     lines: list[str] = [
         "You are Selma, a personal assistant.",
         "",
-        # ── Tooling ──────────────────────────────────────
-        "## Tooling",
-        "Tool names are case-sensitive. Call tools exactly as listed.",
     ]
-
-    if tool_lines:
-        lines += tool_lines
-    lines += [
-        "TOOLS.md does not control tool availability; it is user guidance for how to use external tools.",
-        f"For long waits, avoid rapid poll loops: use `{exec_tool_name}` with "
-        f"enough yieldMs or process(action=poll, timeout=<ms>).",
-        "If a task is more complex or takes longer, spawn a sub-agent. "
-        "Completion is push-based: it will auto-announce when done.",
-        "",
-        # ── Tool Call Style ───────────────────────────────
-        "## Tool Call Style",
-        "Default: do not narrate routine, low-risk tool calls (just call the tool).",
-        "Narrate only when it helps: multi-step work, complex/challenging problems, "
-        "sensitive actions (e.g., deletions), or when the user explicitly asks.",
-        "Keep narration brief and value-dense; avoid repeating obvious steps.",
-        "Use plain human language for narration unless in a technical context.",
-        "When a first-class tool exists for an action, use the tool directly "
-        "instead of asking the user to run equivalent CLI or slash commands.",
-        "When exec returns approval-pending, include the concrete /approve command "
-        "from tool output as plain chat text for the user.",
-        "Never execute /approve through exec or any other shell/tool path; "
-        "/approve is a user-facing approval command, not a shell command.",
-        "",
-    ]
+    lines += _build_tool_block_trailer(exec_tool_name, tool_lines)
+    lines += _build_tool_call_style_section()
 
     # ── Execution Bias ────────────────────────────────────
     lines += _build_execution_bias_section(is_minimal)
 
     # ── Safety ────────────────────────────────────────────
-    lines += [
-        "## Safety",
-        "You have no independent goals: do not pursue self-preservation, "
-        "replication, resource acquisition, or power-seeking; avoid long-term "
-        "plans beyond the user's request.",
-        "Prioritize safety and human oversight over completion; if instructions "
-        "conflict, pause and ask; comply with stop/pause/audit requests and never "
-        "bypass safeguards.",
-        "Do not manipulate or persuade anyone to expand access or disable safeguards. "
-        "Do not copy yourself or change system prompts, safety rules, or tool policies "
-        "unless explicitly requested.",
-        "",
-    ]
+    lines += _build_safety_section()
 
     # ── Skills ────────────────────────────────────────────
     lines += _build_skills_section(params.skills_prompt, read_tool_name)
 
     # ── Workspace ─────────────────────────────────────────
-    lines += [
-        "## Workspace",
-        f"Your working directory is: {params.workspace_dir}",
-        "Treat this directory as the single global workspace for file operations "
-        "unless explicitly instructed otherwise.",
-        "IMPORTANT: Use only simple relative paths for file operations (e.g. `.selma/workspace/memory/today.md`, "
-        "`HEARTBEAT.md`). Do NOT include the workspace path itself in file paths — "
-        f"never start a path with `{Path(params.workspace_dir).name}/` or "
-        f"`{Path(params.workspace_dir).parent.name}/`. "
-        "Writing outside the workspace directory is not permitted.",
-        *[note.strip() for note in params.workspace_notes if note.strip()],
-        "",
-    ]
+    lines += _build_workspace_section(params.workspace_dir, params.workspace_notes)
 
     # ── Date & Time ──────────────────────────────────────
     lines += _build_time_section(params.user_timezone)
 
     # ── Workspace Files ──────────────────────────────────
-    lines += [
-        "## Workspace Files (injected)",
-        "These user-editable files are loaded by Selma and included below in Project Context.",
-        "",
-    ]
+    lines += _build_workspace_files_intro_section()
 
     # ── Output Directives ────────────────────────────────
     lines += _build_assistant_output_directives_section(is_minimal)
@@ -717,20 +799,7 @@ def build_agent_system_prompt(params: BuildAgentSystemPromptParams) -> str:
 
     # ── Silent Replies ───────────────────────────────────
     if not is_minimal and params.include_silent_replies:
-        lines += [
-            "## Silent Replies",
-            f"When you have nothing to say, respond with ONLY: {SILENT_REPLY_TOKEN}",
-            "",
-            "⚠️ Rules:",
-            "- It must be your ENTIRE message — nothing else",
-            f'- Never append it to an actual response (never include "{SILENT_REPLY_TOKEN}" in real replies)',
-            "- Never wrap it in markdown or code blocks",
-            "",
-            f'❌ Wrong: "Here\'s help... {SILENT_REPLY_TOKEN}"',
-            f'❌ Wrong: "\\"{SILENT_REPLY_TOKEN}\\""',
-            f"✅ Right: {SILENT_REPLY_TOKEN}",
-            "",
-        ]
+        lines += _build_silent_replies_section()
 
     # ── CACHE BOUNDARY ───────────────────────────────────────
     lines.append(SYSTEM_PROMPT_CACHE_BOUNDARY)
@@ -744,18 +813,12 @@ def build_agent_system_prompt(params: BuildAgentSystemPromptParams) -> str:
 
     # ── Runtime (last line) ──────────────────────────────
     reasoning_level = params.reasoning_level or "off"
-    runtime_line = build_runtime_line(
+    lines += _build_runtime_section(
         runtime_info=params.runtime_info,
-        runtime_channel=runtime_channel or None,
-        runtime_capabilities=params.runtime_info.capabilities if params.runtime_info else [],
+        runtime_channel=runtime_channel,
+        reasoning_level=reasoning_level,
         default_think_level=params.default_think_level,
     )
-    lines += [
-        "## Runtime",
-        runtime_line,
-        f"Reasoning: {reasoning_level} (hidden unless on/stream). "
-        "Toggle /reasoning; /status shows Reasoning when enabled.",
-    ]
 
     # Strip empty lines and join
     return "\n".join(line for line in lines if line is not None)
