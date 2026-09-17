@@ -43,10 +43,11 @@ Vorgaben (wie bei den Coverage-Runden):
 - **Risk:** niedrig.
 - **Umsetzung (2026-09-15, Commit `0eb709b`):** `AgentEventPayload = AgentMessage | ToolCallRequest | str | None` (alias + Kommentar-Mappe je Event-Typ) in agent.py; `SpanAttributeValue = float | bool | int | str | None` + None-Skip in tracing.py; `is_enabled/start(config: SelmaConfig)` in channel_adapter.py. Consumer-Narrowing: agent_runtime.py EventSubscriber auf `isinstance`-Checks, agent_session.py `_on_agent_event` mit `assert isinstance(…, AssistantMessage)` (Statt-Falsy-Tests). Tests: SimpleNamespace-Payload-Fakes → echte Pydantic-Modelle (AssistantMessage/ToolCallRequest) in test_unit_agent_runtime.py + test_unit_runtime.py (Stolperstein #7 — Pydantic-Modelle nicht mit SimpleNamespace fake-en). Restliche `Any`=4 Stellen: dokumentiert begründet (`raw: Any`-Protokoll, validate_tools_allow-Validator). Zahlen: **729 passed / 0 failed**, ruff+mypy grün, Gesamt-Coverage **99 %**, `find ~/.selma` → 0.
 
-### 5. `system_prompt.py:575 build_agent_system_prompt(params)` — **187 Zeilen**
+### 5. ~~`system_prompt.py: build_agent_system_prompt(params)` — **187 Zeilen**~~ ✅ **erledigt 2026-09-17**
 - **Smell:** Long function + Feature envy (liest an 10+ parametern aus `params` bzw. Sections).
-- **Fix:** Bereits teil-sektional aufgebaut (`_build_reaction_section` etc.) — restliche Inline-Blöcke > 10 Zeilen zu `_build_*_section()`-Helpers extrahieren.
-- **Risk:** mittel. Coverage `system_prompt.py` 100 % halten (Tests greifen auf `build_agent_system_prompt` Ergebnis → internale Extraktion sollte transparent bleiben).
+- **Fix:** 7 Inline-Blöcke → `_build_*_section`-Helper extrahiert (Tooling/Tool-Call-Style/Safety/Workspace/Silent-Replies/Runtime/Workspace-Files-Intro) → `build_agent_system_prompt` **187 → 114 Zeilen** (25Z Docstring; Rest reine Orchestrierung — kein Inline-Block > 10Z mehr).
+- **Risk:** mittel → **verifiziert behavior-preserving:** Differential-Check vs. `git show HEAD:src/selma/system_prompt.py` über **25 Param-Combo-Cases (full/minimal/none, Reactions, Reasoning, Owner-Raw/Hash, Context-Files stable/dynamic/sanitize, Tools-Casing, …) → 25/25 BYTE-IDENTICAL**; `user_prompt_prefix` identisch. Suite 729 grün, `system_prompt.py` **100 %**, ruff/mypy grün.
+- **Stolperstein 24 (neu):** Erste Edit-Runde auf Basis **falscher Datei-Struktur-Annahme** (vermutete Inline-Blöcke, die so nicht existierten) → 6 Non-Match-Editions + Helper-Namen-Kollision mit existierenden `_build_*`-Helpers (wäre Shadowing → Prompt-Änderung). **Regel: Vor großem Refactor IMMER realen Text per `grep -n "^def"` + `read` mitschneiden, Helper-Namen per ast-Grep auf Duplikate prüfen; bei Fehlstart `git status --short` + `git diff --stat` → `git checkout -- <eigene-datei>`, dann neu starten.**
 
 ---
 
