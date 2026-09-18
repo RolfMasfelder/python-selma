@@ -182,59 +182,19 @@ class Agent:
                 self._emit("turn_start")
 
                 # ── Stream one LLM response ───────────────
-                text_parts: list[str] = []
-                # Accumulate tool call deltas by index
-                # {index: {"id": str, "name": str, "arguments": str}}
-                tool_call_accumulators: dict[int, dict[str, str]] = {}
-
-                extra: dict[str, Any] = {}
-                if self._state.thinking_level is not None:
-                    extra["reasoning_effort"] = self._state.thinking_level
-                stream = await self._client.chat.completions.create(
-                    model=self._state.model,
-                    messages=openai_messages,
-                    tools=openai_tools,
-                    stream=True,
-                    **extra,
-                )
-
-                async for chunk in stream:
-                    if not chunk.choices:
-                        continue
-                    delta = chunk.choices[0].delta
-
-                    # Text delta → stream to subscribers
-                    if delta.content:
-                        text_parts.append(delta.content)
-                        self._emit("message_update", delta.content)
-
-                    # Tool call fragments → accumulate
-                    if delta.tool_calls:
-                        for tc_delta in delta.tool_calls:
-                            idx = tc_delta.index
-                            if idx not in tool_call_accumulators:
-                                tool_call_accumulators[idx] = {"id": "", "name": "", "arguments": ""}
-                                logger.info("LLM requested tool call | index=%d", idx)
-                            acc = tool_call_accumulators[idx]
-                            if tc_delta.id:
-                                acc["id"] += tc_delta.id
-                            if tc_delta.function:
-                                if tc_delta.function.name:
-                                    acc["name"] += tc_delta.function.name
-                                if tc_delta.function.arguments:
-                                    acc["arguments"] += tc_delta.function.arguments
+                text_parts, tool_call_fragments = await self._stream_turn(openai_messages, openai_tools)
 
                 self._emit("turn_end")
                 logger.info(
                     "Turn %d stream ended | tool_call_fragments=%s text_len=%d text_preview=%r",
                     turn,
-                    tool_call_accumulators,
+                    tool_call_fragments,
                     len("".join(text_parts)),
                     "".join(text_parts)[:500],
                 )
 
                 # ── No tool calls → response complete ─────
-                if not tool_call_accumulators:
+                if not tool_call_fragments:
                     final_text = "".join(text_parts)
                     assistant_msg = AssistantMessage(content=final_text or None)
                     self._state.messages.append(assistant_msg)
@@ -243,19 +203,7 @@ class Agent:
                     break
 
                 # ── Tool calls → parse, persist, execute ──
-                tool_calls: list[ToolCallRequest] = []
-                for acc in tool_call_accumulators.values():
-                    try:
-                        arguments = json.loads(acc["arguments"] or "{}")
-                    except json.JSONDecodeError:
-                        arguments = {}
-                    tool_calls.append(
-                        ToolCallRequest(
-                            id=acc["id"],
-                            name=acc["name"],
-                            arguments=arguments,
-                        )
-                    )
+                tool_calls = self._parse_tool_calls(tool_call_fragments)
 
                 # Persist the assistant turn with tool_calls attached
                 assistant_with_calls = AssistantMessage(
@@ -286,6 +234,81 @@ class Agent:
             self._state.is_streaming = False
             self._emit("agent_end")
             logger.info("Agent end | turns=%d messages=%d", turn + 1, len(self._state.messages))
+
+    # ── Turn Phases (extracted from _run_loop, P2#7) ─────────
+
+    async def _stream_turn(
+        self, openai_messages: list[ChatCompletionMessageParam], openai_tools: list[ChatCompletionToolParam]
+    ) -> tuple[list[str], dict[int, dict[str, str]]]:
+        """Stream one LLM response; return collected text parts and tool-call fragments.
+
+        ``message_update``-Events werden WÄHREND des Streams gesendet
+        (Stolperstein #7 — die Emissions-Punkte dürfen nicht nach dem
+        Streamende verschoben werden).
+        """
+        text_parts: list[str] = []
+        tool_call_fragments: dict[int, dict[str, str]] = {}
+
+        extra: dict[str, Any] = {}
+        if self._state.thinking_level is not None:
+            extra["reasoning_effort"] = self._state.thinking_level
+        stream = await self._client.chat.completions.create(
+            model=self._state.model,
+            messages=openai_messages,
+            tools=openai_tools,
+            stream=True,
+            **extra,
+        )
+
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+
+            # Text delta → stream to subscribers
+            if delta.content:
+                text_parts.append(delta.content)
+                self._emit("message_update", delta.content)
+
+            # Tool call fragments → accumulate
+            if delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    if idx not in tool_call_fragments:
+                        tool_call_fragments[idx] = {"id": "", "name": "", "arguments": ""}
+                        logger.info("LLM requested tool call | index=%d", idx)
+                    acc = tool_call_fragments[idx]
+                    if tc_delta.id:
+                        acc["id"] += tc_delta.id
+                    if tc_delta.function:
+                        if tc_delta.function.name:
+                            acc["name"] += tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            acc["arguments"] += tc_delta.function.arguments
+
+        return text_parts, tool_call_fragments
+
+    @staticmethod
+    def _parse_tool_calls(tool_call_fragments: dict[int, dict[str, str]]) -> list[ToolCallRequest]:
+        """Build typed ToolCallRequests from raw stream fragments.
+
+        Invalid JSON arguments fall back to an empty dict (behavior preserved
+        from the inline loop, P2#7).
+        """
+        tool_calls: list[ToolCallRequest] = []
+        for acc in tool_call_fragments.values():
+            try:
+                arguments = json.loads(acc["arguments"] or "{}")
+            except json.JSONDecodeError:
+                arguments = {}
+            tool_calls.append(
+                ToolCallRequest(
+                    id=acc["id"],
+                    name=acc["name"],
+                    arguments=arguments,
+                )
+            )
+        return tool_calls
 
     # ── Tool Execution ───────────────────────────────────────
 
