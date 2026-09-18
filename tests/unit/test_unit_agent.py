@@ -262,10 +262,11 @@ class TestRunLoop:
         assert agent.state.messages[2].content == "Error: kaputt"
 
     # ── Safety-Net: Tool-Turn-Event-Reihenfolge + Fehler-Pfade ──
-    # Vor der P2-Refactor von _run_loop wird die Event-Reihenfolge
-    # (tool_start VOR tool_end, tool_end VOR nächstem tool_start,
-    # Turn-2 turn_start VOR message_update) und das gleichzeitige
-    # Text+Tool-Mixing fixiert.
+    # Fixiert die Event-Reihenfolge (tool_start VOR tool_end, tool_end VOR
+    # nächstem tool_start, Turn-2 turn_start VOR message_update) und das
+    # gleichzeitige Text+Tool-Mixing — gilt weiterhin nach der P2#7-Refactor
+    # von _run_loop (Stein #7: message_end bleibt WÄHREND des Streams, nicht
+    # nach prompt-Return).
 
     def test_tool_error_events_and_loop_continues(self):
         """Tool-Exception: Loop bricht NICHT ab, tool_end wird trotzdem
@@ -386,6 +387,31 @@ class TestRunLoop:
         _run(_run_prompt(agent))
 
         assert seen == [["user"]]
+
+    def test_message_end_fires_while_prompt_task_still_running(self):
+        """Stolperstein #7 als expliziter Regressionstest (P2#7):
+        message_end muss WÄHREND prompt() gesendet werden — d. h. der
+        prompt-Task darf zum Zeitpunkt des message_end-Events NOCH nicht
+        abgeschlossen sein. Ein Refactor, der das Event nach prompt()-Return
+        verschieben würde, bricht diesen Test."""
+        agent, _ = _make_agent([[_chunk(content="fertig")]])
+        firing: dict[str, bool] = {}
+        task: asyncio.Task[None]
+
+        def listener(event):
+            if event.type == "message_end":
+                firing["task_done"] = task.done()
+
+        async def kick():
+            nonlocal task
+            task = agent.prompt(UserMessage(content="hi"))
+            await asyncio.wait_for(task, timeout=60)
+
+        agent.subscribe(listener)
+        _run(kick())
+
+        assert "task_done" in firing, "message_end wurde nie emittiert"
+        assert firing["task_done"] is False, "message_end kam NACH prompt()-Return"
 
 
 class TestFailurePaths:
