@@ -567,62 +567,54 @@ class CreateSessionOptions(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
-async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
-    """
-    The single factory function. Assembles everything.
+# ─── create_agent_session helpers (P2#8, 2026-09-18) ───────
+# Each step of the 9-step factory lives here; create_agent_session below
+# is pure orchestration. Module-level (not AgentSession methods) so the
+# existing module-attribute patches (AS.ModelRegistry, AS.create_coding_tools)
+# keep working.
 
-    create_agent_session()
-    │
-    ├─ 1. SessionManager      → create new JSONL or load existing
-    ├─ 2. SettingsManager     → merge global + project-local
-    ├─ 3. Resolve model       → option > query Ollama > first available > error
-    ├─ 4. ResourceLoader      → load global CODING_TOOLS.md
-    ├─ 5. Instantiate tools   → create_coding_tools(cwd) or caller-supplied
-    ├─ 6. Build system prompt → tool names + context_files
-    ├─ 7. Build agent         → bare loop, no context hook yet
-    ├─ 8. Load history        → on continue_session: tree → messages
-    └─ 9. AgentSession        → create session
-    """
 
-    # ── 1. Session Manager ──────────────────────────────────
+def _resolve_session_manager(options: CreateSessionOptions) -> SessionManager:
+    """Step 1: caller-supplied manager > continue_session file > new JSONL."""
     if options.session_manager is not None:
-        session_manager = options.session_manager
-    elif options.continue_session:
-        session_manager = SessionManager(session_file=options.continue_session)
-    else:
-        session_manager = SessionManager.create(cwd=options.cwd)
+        return options.session_manager
+    if options.continue_session:
+        return SessionManager(session_file=options.continue_session)
+    return SessionManager.create(cwd=options.cwd)
 
-    # ── 2. Settings ─────────────────────────────────────────
-    settings_manager = SettingsManager(cwd=options.cwd)
 
-    # ── 3. Resolve model ────────────────────────────────────
-    # ModelRegistry is only queried when no model is explicitly specified.
+async def _resolve_session_model(options: CreateSessionOptions) -> str:
+    """Step 3: explicit option wins; else first Ollama model from the registry."""
     model = options.model
-    if not model:
-        base_url_root = options.ollama_base_url.replace("/v1", "")
-        model_registry = ModelRegistry(base_url=base_url_root)
-        try:
-            await model_registry.refresh()
-        except Exception as e:
-            trace_and_log(logger, f"create_agent_session: ModelRegistry refresh failed: {e}")
-        available = model_registry.get_available()
-        if not available:
-            raise RuntimeError("No Ollama model available. Is Ollama running?")
-        model = available[0].name
-        trace_and_log(logger, f"create_agent_session: No model specified — using first available | model={model}")
+    if model:
+        return model
+    base_url_root = options.ollama_base_url.replace("/v1", "")
+    model_registry = ModelRegistry(base_url=base_url_root)
+    try:
+        await model_registry.refresh()
+    except Exception as e:
+        trace_and_log(logger, f"create_agent_session: ModelRegistry refresh failed: {e}")
+    available = model_registry.get_available()
+    if not available:
+        raise RuntimeError("No Ollama model available. Is Ollama running?")
+    model = available[0].name
+    trace_and_log(logger, f"create_agent_session: No model specified — using first available | model={model}")
+    return model
 
-    # ── 4. Load resources ───────────────────────────────────
-    resource_loader = ResourceLoader(cwd=options.cwd or ".")
-    context_files = resource_loader.load_context_files()
 
-    # ── 5. Instantiate tools ────────────────────────────────
-    # Use caller-supplied tools, or fall back to the standard coding tools
-    # (read, edit, write) bound to the correct cwd.
+def _build_session_tools(options: CreateSessionOptions) -> list[AgentTool]:
+    """Step 5: caller-supplied tools, or the standard coding tools for the cwd."""
     tools = options.tools if options.tools else create_coding_tools(options.cwd or os.getcwd())
     trace_and_log(logger, f"create_agent_session: Tools loaded | names={[t.name for t in tools]}")
+    return tools
 
-    # ── 6. Build system prompt ──────────────────────────────
-    # When tools were auto-created, reflect the actual tool names in the prompt.
+
+def _build_session_system_prompt(
+    options: CreateSessionOptions,
+    context_files: list,
+    tools: list[AgentTool],
+) -> str:
+    """Step 6: caller-supplied prompt, or the default prompt for tools+context."""
     if options.system_prompt:
         system_prompt = options.system_prompt
     else:
@@ -641,10 +633,17 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
         f"create_agent_session: System prompt built | length={len(system_prompt)} context_files={len(context_files)}",
     )
     trace_and_log(logger, f"create_agent_session: System prompt content:\n{system_prompt}")
+    return system_prompt
 
-    # ── 7. Build agent ──────────────────────────────────────
-    # convert_to_llm is a placeholder — will be overridden by AgentSession
-    agent = Agent(
+
+def _build_session_agent(
+    model: str,
+    tools: list[AgentTool],
+    system_prompt: str,
+    options: CreateSessionOptions,
+) -> Agent:
+    """Step 7: bare agent; convert_to_llm is a placeholder — overridden by AgentSession."""
+    return Agent(
         AgentOptions(
             model=model,
             tools=tools,
@@ -657,9 +656,15 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
         )
     )
 
-    # ── 8. Load history ─────────────────────────────────────
-    # Restore history when opening an existing session (via session_manager
-    # with a file, or legacy continue_session).
+
+def _restore_or_init_history(
+    agent: Agent,
+    options: CreateSessionOptions,
+    session_manager: SessionManager,
+    model: str,
+    system_prompt: str,
+) -> None:
+    """Step 8: existing session → restore messages; otherwise append session meta."""
     has_existing = options.continue_session is not None or (
         options.session_manager is not None
         and options.session_manager.session_file is not None
@@ -676,6 +681,53 @@ async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
                 system_prompt=system_prompt,
             )
         )
+
+
+async def create_agent_session(options: CreateSessionOptions) -> AgentSession:
+    """
+    The single factory function. Assembles everything.
+
+    create_agent_session()
+    │
+    ├─ 1. SessionManager      → create new JSONL or load existing
+    ├─ 2. SettingsManager     → merge global + project-local
+    ├─ 3. Resolve model       → option > query Ollama > first available > error
+    ├─ 4. ResourceLoader      → load global CODING_TOOLS.md
+    ├─ 5. Instantiate tools   → create_coding_tools(cwd) or caller-supplied
+    ├─ 6. Build system prompt → tool names + context_files
+    ├─ 7. Build agent         → bare loop, no context hook yet
+    ├─ 8. Load history        → on continue_session: tree → messages
+    └─ 9. AgentSession        → create session
+
+    Steps 1–8 are delegated to the ``_…_session`` helpers below (P2#8);
+    this function only orchestrates them in the documented order.
+    """
+
+    # ── 1. Session Manager ──────────────────────────────────
+    session_manager = _resolve_session_manager(options)
+
+    # ── 2. Settings ─────────────────────────────────────────
+    settings_manager = SettingsManager(cwd=options.cwd)
+
+    # ── 3. Resolve model ────────────────────────────────────
+    # ModelRegistry is only queried when no model is explicitly specified.
+    model = await _resolve_session_model(options)
+
+    # ── 4. Load resources ───────────────────────────────────
+    resource_loader = ResourceLoader(cwd=options.cwd or ".")
+    context_files = resource_loader.load_context_files()
+
+    # ── 5. Instantiate tools ────────────────────────────────
+    tools = _build_session_tools(options)
+
+    # ── 6. Build system prompt ──────────────────────────────
+    system_prompt = _build_session_system_prompt(options, context_files, tools)
+
+    # ── 7. Build agent ──────────────────────────────────────
+    agent = _build_session_agent(model, tools, system_prompt, options)
+
+    # ── 8. Load history ─────────────────────────────────────
+    _restore_or_init_history(agent, options, session_manager, model, system_prompt)
 
     # ── 9. Assemble AgentSession ─────────────────────────────
     session = AgentSession(
