@@ -326,6 +326,210 @@ def detect_bootstrap_mode(workspace_dir: str) -> BootstrapMode:
 # -- Layer 1 - agent_command -------------------------------
 
 
+class CommandContext(BaseModel):
+    """
+    Bundles everything agent_command derives during its preparation phase.
+
+    The 6 public parameters (most optional) were the smell; this data-carrier
+    holds the validation results plus per-run state (config, session,
+    model choice, timeouts) as one object.
+
+    Non-optional fields are guaranteed by _prepare_command; the optional
+    ones mirror the corresponding RunEmbeddedPiAgentOptions fields.
+
+    model_config allows arbitrary types (asyncio.Event, Callables inside
+    DeliveryContext).
+    """
+
+    run_id: str
+    started_at: int
+    # workspace_dir ist ab sofort immer das aktuelle Arbeitsverzeichnis, nicht das .selma-Verzeichnis
+    workspace_dir: str
+    delivery: DeliveryContext
+    config: SelmaConfig
+    store: SessionStore
+    session_record: SessionRecord
+    is_new_session: bool
+    session_file: str
+    provider: str
+    model: str
+    timeout_ms: int
+    bootstrap_mode: BootstrapMode
+    thinking_level: str | None = None
+    skills_snapshot: SkillsSnapshot | None = None
+    session_key: str | None = None
+    session_id: str | None = None
+    abort_signal: asyncio.Event | None = None
+    tools_allow: list[str] | None = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
+def _prepare_command(
+    message: str,
+    *,
+    session_key: str | None,
+    session_id: str | None,
+    workspace_dir: str,
+    delivery: DeliveryContext,
+    abort_signal: asyncio.Event | None,
+) -> CommandContext:
+    """
+    Phase 1 – Validation und Kontext-Auflösung (vor dem "start"-Event,
+    damit ValueError-Abbrüche die Listener nicht berühren).
+
+    Mutiert die Session (updated_at, skills snapshot) exakt wie die
+    frühere monolithische agent_command — die Nebenwirkungen Teil des
+    Vertrags.
+    """
+    if not message.strip():
+        raise ValueError("message must not be empty")
+
+    if not session_key and not session_id:
+        raise ValueError("At least session_key or session_id must be provided")
+
+    run_id = str(uuid.uuid4())[:8]
+    started_at = now_ms()
+
+    add_span_infos(run_id=run_id, session_key=session_key)
+
+    config = load_config(workspace_dir)
+
+    store, session_record, is_new_session, session_file = get_session(
+        session_key,
+        session_id,
+        config,
+        workspace_dir,
+    )
+
+    bootstrap_mode = detect_bootstrap_mode(
+        get_workspace(workspace_dir)
+    )  # BOOTSTRAP.md exists → "full" access, missing → "none"
+
+    # skills.py auflöst intern selbst <root>/.selma/workspace/skills (get_workspace).
+    skills_snapshot = _resolve_skills_snapshot(session_record, workspace_dir, is_new_session)
+
+    session_record.updated_at = now_iso()
+    save_session_store(store)
+
+    default_provider, default_model = get_default_model(config)
+    provider = session_record.provider_override or default_provider
+    model = session_record.model_override or default_model
+
+    thinking_level = session_record.thinking_level or resolve_thinking_default(config, provider, model)
+
+    trace_and_log(
+        logger,
+        f"Model | provider={provider} model={model} thinking={thinking_level}",
+    )
+
+    timeout_seconds = resolve_timeout(config)
+    timeout_ms = timeout_seconds * 1000 if timeout_seconds > 0 else 0
+
+    tools_allow = resolve_tools_allow(config)
+
+    return CommandContext(
+        run_id=run_id,
+        started_at=started_at,
+        workspace_dir=workspace_dir,
+        delivery=delivery,
+        config=config,
+        store=store,
+        session_record=session_record,
+        is_new_session=is_new_session,
+        session_file=session_file,
+        provider=provider,
+        model=model,
+        bootstrap_mode=bootstrap_mode,
+        thinking_level=thinking_level,
+        skills_snapshot=skills_snapshot,
+        session_key=session_key,
+        session_id=session_id,
+        abort_signal=abort_signal,
+        timeout_ms=timeout_ms,
+        tools_allow=tools_allow,
+    )
+
+
+def _build_run_options(message: str, ctx: CommandContext) -> RunEmbeddedPiAgentOptions:
+    """
+    Phase 2 – baut die Layer-2-Options aus dem vorbereiteten Kontext.
+    """
+    return RunEmbeddedPiAgentOptions(
+        prompt=message,
+        session_record=ctx.session_record,
+        session_file=ctx.session_file,
+        workspace_dir=ctx.workspace_dir,
+        provider=ctx.provider,
+        model=ctx.model,
+        skills_snapshot=ctx.skills_snapshot,
+        config=ctx.config,
+        bootstrap_mode=ctx.bootstrap_mode,
+        is_new_session=ctx.is_new_session,
+        abort_signal=ctx.abort_signal,
+        thinking_level=cast(Literal["low", "medium", "high"] | None, ctx.thinking_level),
+        timeout_ms=ctx.timeout_ms,
+        run_id=ctx.run_id,
+        delivery=ctx.delivery,
+        tools_allow=ctx.tools_allow,
+    )
+
+
+async def _execute_command(opts: RunEmbeddedPiAgentOptions, *, started_at: int) -> AgentCommandResult:
+    """
+    Phase 2.5 – Layer-2-Call inkl. Lifecycle-Events.
+
+    Erfolg: "end"-Event. Fehler: "error"-Event (nur wenn noch kein
+    "end" emittiert wurde) + Log + Re-Raise — exakt die Semantik der
+    alten try/except-Behandlung von agent_command.
+    """
+    lifecycle_ended = False
+    result: AgentCommandResult
+    try:
+        # Layer 2: run_embedded_pi_agent handles retry/fallback
+        result = await run_embedded_pi_agent(opts)
+
+        stop_reason = result.meta.stop_reason
+        emit_lifecycle_event(
+            LifecyclePhase(
+                run_id=opts.run_id,
+                phase="end",
+                started_at=started_at,
+                ended_at=now_ms(),
+                aborted=result.meta.aborted,
+                stop_reason=stop_reason,
+            )
+        )
+        lifecycle_ended = True
+    except Exception as err:
+        if not lifecycle_ended:
+            emit_lifecycle_event(
+                LifecyclePhase(
+                    run_id=opts.run_id,
+                    phase="error",
+                    started_at=started_at,
+                    ended_at=now_ms(),
+                    error=str(err),
+                )
+            )
+        logger.exception("agentCommand failed | run_id=%s", opts.run_id)
+        raise
+    return result
+
+
+async def _finalize_command(result: AgentCommandResult, ctx: CommandContext) -> None:
+    """
+    Phase 3 – After-Run: Store-Aktualisierung + Lieferung der Antwort.
+    """
+    update_session_store_after_run(
+        store=ctx.store,
+        session_record=ctx.session_record,
+        provider=ctx.provider,
+        model=ctx.model,
+    )
+    await deliver_result(result, ctx.delivery)
+
+
 @tracer.chain(name="agent_command")
 async def agent_command(
     message: str,
@@ -344,124 +548,37 @@ async def agent_command(
 
     Corresponds to agentCommand() in OpenClaw
     (src/commands/agent-command.ts).
-    """
 
+    Ablauf (P2#9): _prepare_command (Validation + Kontext) → "start"-Event
+    → _build_run_options + _execute_command (Layer 2) →
+    _finalize_command (Store + Delivery).
+    """
     runtime = runtime or RuntimeEnv()
     delivery = delivery or DeliveryContext()
+    # workspace_dir ist ab sofort immer das aktuelle Arbeitsverzeichnis, nicht das .selma-Verzeichnis
+    workspace_dir = runtime.cwd
 
-    if not message.strip():
-        raise ValueError("message must not be empty")
-
-    if not session_key and not session_id:
-        raise ValueError("At least session_key or session_id must be provided")
-
-    run_id = str(uuid.uuid4())[:8]
-    started_at = now_ms()
-
-    add_span_infos(run_id=run_id, session_key=session_key)
-
-    config = load_config(runtime.cwd)
-
-    store, session_record, is_new_session, session_file = get_session(session_key, session_id, config, runtime.cwd)
-
-    workspace_dir = (
-        runtime.cwd
-    )  # workspace_dir ist ab sofort immer das aktuelle Arbeitsverzeichnis, nicht das .selma-Verzeichnis
-
-    bootstrap_mode = detect_bootstrap_mode(
-        get_workspace(runtime.cwd)
-    )  # BOOTSTRAP.md exists → "full" access, missing → "none"
-
-    # skills.py auflöst intern selbst <root>/.selma/workspace/skills (get_workspace).
-    skills_snapshot = _resolve_skills_snapshot(session_record, workspace_dir, is_new_session)
-
-    session_record.updated_at = now_iso()
-    save_session_store(store)
-
-    default_provider, default_model = get_default_model(config)
-
-    provider = session_record.provider_override or default_provider
-    model = session_record.model_override or default_model
-
-    thinking_level = session_record.thinking_level or resolve_thinking_default(config, provider, model)
-
-    trace_and_log(
-        logger,
-        f"Model | provider={provider} model={model} thinking={thinking_level}",
+    ctx = _prepare_command(
+        message,
+        session_key=session_key,
+        session_id=session_id,
+        workspace_dir=workspace_dir,
+        delivery=delivery,
+        abort_signal=abort_signal,
     )
-
-    timeout_seconds = resolve_timeout(config)
-    timeout_ms = timeout_seconds * 1000 if timeout_seconds > 0 else 0
-
-    tools_allow = resolve_tools_allow(config)
 
     emit_lifecycle_event(
         LifecyclePhase(
-            run_id=run_id,
+            run_id=ctx.run_id,
             phase="start",
-            started_at=started_at,
+            started_at=ctx.started_at,
         )
     )
 
-    lifecycle_ended = False
-    result: AgentCommandResult
+    opts = _build_run_options(message, ctx)
+    result = await _execute_command(opts, started_at=ctx.started_at)
 
-    try:
-        # Layer 2: run_embedded_pi_agent handles retry/fallback
-        result = await run_embedded_pi_agent(
-            RunEmbeddedPiAgentOptions(
-                prompt=message,
-                session_record=session_record,
-                session_file=session_file,
-                workspace_dir=workspace_dir,
-                provider=provider,
-                model=model,
-                thinking_level=cast(
-                    Literal["low", "medium", "high"] | None,
-                    thinking_level,
-                ),
-                timeout_ms=timeout_ms,
-                run_id=run_id,
-                skills_snapshot=skills_snapshot,
-                config=config,
-                bootstrap_mode=bootstrap_mode,
-                is_new_session=is_new_session,
-                abort_signal=abort_signal,
-                delivery=delivery,
-                tools_allow=tools_allow,
-            )
-        )
-
-        stop_reason = result.meta.stop_reason
-        emit_lifecycle_event(
-            LifecyclePhase(
-                run_id=run_id,
-                phase="end",
-                started_at=started_at,
-                ended_at=now_ms(),
-                aborted=result.meta.aborted,
-                stop_reason=stop_reason,
-            )
-        )
-        lifecycle_ended = True
-
-    except Exception as err:
-        if not lifecycle_ended:
-            emit_lifecycle_event(
-                LifecyclePhase(
-                    run_id=run_id,
-                    phase="error",
-                    started_at=started_at,
-                    ended_at=now_ms(),
-                    error=str(err),
-                )
-            )
-        logger.exception("agentCommand failed | run_id=%s", run_id)
-        raise
-
-    update_session_store_after_run(store=store, session_record=session_record, provider=provider, model=model)
-
-    await deliver_result(result, delivery)
+    await _finalize_command(result, ctx)
 
     return result
 
