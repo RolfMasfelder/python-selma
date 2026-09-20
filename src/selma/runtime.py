@@ -23,7 +23,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
-from selma.agent import AgentEvent
+from selma.agent import AgentEvent, AgentTool
 from selma.agent_session import (
     AgentSession,
     CreateSessionOptions,
@@ -1154,6 +1154,85 @@ def build_attempt_result(
 # Layer 3 - run_embedded_attempt
 
 
+def _build_runtime_info(opts: RunEmbeddedPiAgentOptions) -> RuntimeInfo:
+    """RuntimeInfo for the system prompt (host/model/shell metadata)."""
+    session_key_parts = opts.session_record.session_key.split(":")
+    channel = session_key_parts[-1] if len(session_key_parts) >= 3 else None
+
+    return RuntimeInfo(
+        agent_id=opts.config.agent.id,
+        host=platform.node(),
+        model=f"{opts.provider}/{opts.model}",
+        default_model=f"{opts.provider}/{opts.model}",
+        os=f"{platform.system()} {platform.release()}",
+        arch=platform.machine(),
+        shell=os.environ.get("SHELL", ""),
+        channel=channel,
+    )
+
+
+def _build_attempt_system_prompt(
+    opts: RunEmbeddedPiAgentOptions,
+    runtime_info: RuntimeInfo,
+    context_files: list[EmbeddedContextFile],
+) -> str:
+    """Layer-3 system prompt (built per attempt; context files reloaded each turn)."""
+    return build_agent_system_prompt(
+        BuildAgentSystemPromptParams(
+            workspace_dir=os.path.abspath(opts.workspace_dir),
+            tool_names=opts.tools_allow if opts.tools_allow is not None else ALL_TOOL_NAMES,
+            context_files=context_files,
+            skills_prompt=opts.skills_snapshot.snapshot_text if opts.skills_snapshot else None,
+            runtime_info=runtime_info,
+            default_think_level=opts.thinking_level,
+            bootstrap_mode=opts.bootstrap_mode,
+        )
+    )
+
+
+def _resolve_effective_prompt(opts: RunEmbeddedPiAgentOptions) -> str:
+    """Effective user prompt incl. optional bootstrap prefix (first turn only)."""
+    # -- Bootstrap prefix: only for the first turn of a session, otherwise the
+    # model gets nudged into repeating its opening greeting on every turn
+    # instead of continuing the conversation (BOOTSTRAP.md itself is still
+    # available via context_files for the rest of the bootstrap conversation).
+    bootstrap_prefix = build_agent_user_prompt_prefix(opts.bootstrap_mode) if opts.is_new_session else None
+    return f"{bootstrap_prefix}\n\n{opts.prompt}" if bootstrap_prefix else opts.prompt
+
+
+def _resolve_active_tools(workspace_dir: str, opts: RunEmbeddedPiAgentOptions) -> list[AgentTool]:
+    """All configured tools, filtered by tools_allow when set."""
+    all_tools = create_selma_tools(workspace_dir, config=opts.config)
+    if opts.tools_allow is not None:
+        allowed = set(opts.tools_allow)
+        active_tools = [t for t in all_tools if t.name in allowed]
+    else:
+        active_tools = all_tools
+    return active_tools
+
+
+async def _create_attempt_session(
+    system_prompt: str,
+    tools: list[AgentTool],
+    opts: RunEmbeddedPiAgentOptions,
+) -> AgentSession:
+    """Fresh AgentSession on opts.session_file (manager per attempt = reset-able)."""
+    session_manager = AgentSessionManager(session_file=Path(opts.session_file))
+    return await create_agent_session(
+        CreateSessionOptions(
+            model=opts.model,
+            system_prompt=system_prompt,
+            thinking_level=opts.thinking_level,
+            ollama_base_url=opts.config.model.ollama_base_url,
+            client_timeout_seconds=opts.config.model.timeout_seconds,
+            client_max_retries=opts.config.model.client_max_retries,
+            cwd=opts.workspace_dir,
+            session_manager=session_manager,
+            tools=tools,
+        )
+    )
+
+
 @tracer.chain(name="run_embedded_attempt")
 async def run_embedded_attempt(
     opts: RunEmbeddedPiAgentOptions,
@@ -1173,64 +1252,14 @@ async def run_embedded_attempt(
         run_id=opts.run_id, model=opts.model, thinking_level=opts.thinking_level, bootstrap_mode=opts.bootstrap_mode
     )
 
-    session_key_parts = opts.session_record.session_key.split(":")
-    channel = session_key_parts[-1] if len(session_key_parts) >= 3 else None
-
-    runtime_info = RuntimeInfo(
-        agent_id=opts.config.agent.id,
-        host=platform.node(),
-        model=f"{opts.provider}/{opts.model}",
-        default_model=f"{opts.provider}/{opts.model}",
-        os=f"{platform.system()} {platform.release()}",
-        arch=platform.machine(),
-        shell=os.environ.get("SHELL", ""),
-        channel=channel,
-    )
-
+    runtime_info = _build_runtime_info(opts)
     context_files = _load_context_files(opts.workspace_dir)
-
-    system_prompt = build_agent_system_prompt(
-        BuildAgentSystemPromptParams(
-            workspace_dir=os.path.abspath(opts.workspace_dir),
-            tool_names=opts.tools_allow if opts.tools_allow is not None else ALL_TOOL_NAMES,
-            context_files=context_files,
-            skills_prompt=opts.skills_snapshot.snapshot_text if opts.skills_snapshot else None,
-            runtime_info=runtime_info,
-            default_think_level=opts.thinking_level,
-            bootstrap_mode=opts.bootstrap_mode,
-        )
-    )
-
-    # -- Bootstrap prefix: only for the first turn of a session, otherwise the
-    # model gets nudged into repeating its opening greeting on every turn
-    # instead of continuing the conversation (BOOTSTRAP.md itself is still
-    # available via context_files for the rest of the bootstrap conversation).
-    bootstrap_prefix = build_agent_user_prompt_prefix(opts.bootstrap_mode) if opts.is_new_session else None
-    effective_prompt = f"{bootstrap_prefix}\n\n{opts.prompt}" if bootstrap_prefix else opts.prompt
+    system_prompt = _build_attempt_system_prompt(opts, runtime_info, context_files)
+    effective_prompt = _resolve_effective_prompt(opts)
+    active_tools = _resolve_active_tools(opts.workspace_dir, opts)
 
     # --Create AgentSession
-    all_tools = create_selma_tools(opts.workspace_dir, config=opts.config)
-    if opts.tools_allow is not None:
-        allowed = set(opts.tools_allow)
-        active_tools = [t for t in all_tools if t.name in allowed]
-    else:
-        active_tools = all_tools
-
-    session_path = Path(opts.session_file)
-    session_manager = AgentSessionManager(session_file=session_path)
-    session = await create_agent_session(
-        CreateSessionOptions(
-            model=opts.model,
-            system_prompt=system_prompt,
-            thinking_level=opts.thinking_level,
-            ollama_base_url=opts.config.model.ollama_base_url,
-            client_timeout_seconds=opts.config.model.timeout_seconds,
-            client_max_retries=opts.config.model.client_max_retries,
-            cwd=opts.workspace_dir,
-            session_manager=session_manager,
-            tools=active_tools,
-        )
-    )
+    session = await _create_attempt_session(system_prompt, active_tools, opts)
 
     output, unsubscribe = subscribe_output_collector(opts.delivery, session)
 
