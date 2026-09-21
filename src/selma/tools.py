@@ -12,7 +12,8 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import trafilatura
 from ddgs import DDGS
@@ -137,6 +138,102 @@ def make_web_fetch_tool() -> AgentTool:
 _BROWSER_MAX_CHARS = 20_000
 
 
+@dataclass(frozen=True)
+class BrowserParams:
+    """Parameter set for one browser-tool invocation (extract/screenshot/click/fill/evaluate)."""
+
+    url: str
+    action: str = "extract"
+    selector: str | None = None
+    value: str | None = None
+    script: str | None = None
+    screenshot_path: str | None = None
+    wait_for: str | None = None
+
+
+def _page_text_truncated(page: Any) -> str:
+    """Visible body text, cut at _BROWSER_MAX_CHARS with a truncation note."""
+    text = page.inner_text("body")
+    if len(text) > _BROWSER_MAX_CHARS:
+        text = text[:_BROWSER_MAX_CHARS] + f"\n\n[Truncated at {_BROWSER_MAX_CHARS} chars]"
+    return text
+
+
+# All action handlers share one signature: (page, cwd, params) -> str.
+# `cwd` is only used by _browser_screenshot; others ignore it.
+
+
+def _browser_extract(page: Any, cwd: str, params: BrowserParams) -> str:
+    return _page_text_truncated(page)
+
+
+def _browser_screenshot(page: Any, cwd: str, params: BrowserParams) -> str:
+    path = params.screenshot_path or os.path.join(cwd, "screenshot.png")
+    if params.selector:
+        page.locator(params.selector).screenshot(path=path)
+    else:
+        page.screenshot(path=path, full_page=True)
+    return f"Screenshot saved to {path}"
+
+
+def _browser_click(page: Any, cwd: str, params: BrowserParams) -> str:
+    if not params.selector:
+        return "Error: selector required for click"
+    page.click(params.selector)
+    page.wait_for_load_state("domcontentloaded")
+    return _page_text_truncated(page)
+
+
+def _browser_fill(page: Any, cwd: str, params: BrowserParams) -> str:
+    if not params.selector or params.value is None:
+        return "Error: selector and value required for fill"
+    page.fill(params.selector, params.value)
+    return f"Filled '{params.selector}' with value."
+
+
+def _browser_evaluate(page: Any, cwd: str, params: BrowserParams) -> str:
+    if not params.script:
+        return "Error: script required for evaluate"
+    return str(page.evaluate(params.script))
+
+
+_BROWSER_ACTIONS: tuple[tuple[str, Any], ...] = (
+    ("extract", _browser_extract),
+    ("screenshot", _browser_screenshot),
+    ("click", _browser_click),
+    ("fill", _browser_fill),
+    ("evaluate", _browser_evaluate),
+)
+
+
+def _dispatch_browser_action(page: Any, cwd: str, params: BrowserParams) -> str:
+    for name, handler in _BROWSER_ACTIONS:
+        if params.action == name:
+            return handler(page, cwd, params)
+    return f"Error: unknown action '{params.action}'"
+
+
+def _run_browser(cwd: str, params: BrowserParams) -> str:
+    """One full browser session: launch → navigate → dispatch action → close.
+
+    launch() is OUTSIDE the try/except on purpose: a launch failure
+    propagates to the caller (agent.py catches it), while page-level
+    errors are returned as "Error: …" strings.
+    """
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.goto(params.url, wait_until="domcontentloaded", timeout=30_000)
+            if params.wait_for:
+                page.wait_for_selector(params.wait_for, timeout=10_000)
+            return _dispatch_browser_action(page, cwd, params)
+        except Exception as e:  # broad by design: page errors become tool-result strings
+            return f"Error: {e}"
+        finally:
+            browser.close()
+
+
 def make_browser_tool(cwd: str) -> AgentTool:
     """
     Headless Chromium via Playwright.
@@ -159,57 +256,16 @@ def make_browser_tool(cwd: str) -> AgentTool:
         wait_for: str | None = None,
         **_,
     ) -> str:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
-            try:
-                page = browser.new_page()
-                page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-
-                if wait_for:
-                    page.wait_for_selector(wait_for, timeout=10_000)
-
-                if action == "extract":
-                    text = page.inner_text("body")
-                    if len(text) > _BROWSER_MAX_CHARS:
-                        text = text[:_BROWSER_MAX_CHARS] + f"\n\n[Truncated at {_BROWSER_MAX_CHARS} chars]"
-                    return text
-
-                if action == "screenshot":
-                    path = screenshot_path or os.path.join(cwd, "screenshot.png")
-                    if selector:
-                        page.locator(selector).screenshot(path=path)
-                    else:
-                        page.screenshot(path=path, full_page=True)
-                    return f"Screenshot saved to {path}"
-
-                if action == "click":
-                    if not selector:
-                        return "Error: selector required for click"
-                    page.click(selector)
-                    page.wait_for_load_state("domcontentloaded")
-                    text = page.inner_text("body")
-                    if len(text) > _BROWSER_MAX_CHARS:
-                        text = text[:_BROWSER_MAX_CHARS] + f"\n\n[Truncated at {_BROWSER_MAX_CHARS} chars]"
-                    return text
-
-                if action == "fill":
-                    if not selector or value is None:
-                        return "Error: selector and value required for fill"
-                    page.fill(selector, value)
-                    return f"Filled '{selector}' with value."
-
-                if action == "evaluate":
-                    if not script:
-                        return "Error: script required for evaluate"
-                    result = page.evaluate(script)
-                    return str(result)
-
-                return f"Error: unknown action '{action}'"
-
-            except Exception as e:
-                return f"Error: {e}"
-            finally:
-                browser.close()
+        params = BrowserParams(
+            url=url,
+            action=action,
+            selector=selector,
+            value=value,
+            script=script,
+            screenshot_path=screenshot_path,
+            wait_for=wait_for,
+        )
+        return _run_browser(cwd, params)
 
     return AgentTool(
         name="browser",

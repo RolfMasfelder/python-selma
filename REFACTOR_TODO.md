@@ -86,15 +86,28 @@ Vorgaben (wie bei den Coverage-Runden):
 - **Stolperstein 27 (neu → MEMORY.md): ECHTE Pydantic-Modelle in Fakes, wenn der Carrier validiert** — `CommandContext` validiert `config/store/session_record/skills_snapshot` gegen die echten Typen → `MagicMock`-Instanzen **verworfen**. Fix im A/B-Skript: echte, minimale Instanzen (`SelmaConfig()`, `SessionStore()`, `SessionRecord()`, `SkillsSnapshot(version=…)`) — beide rt-Module teilen dieselben importierten Klassen → gilt für alt UND neu.
 - Details: `memory/2026-09-20.md`.
 
-### 10. `runtime.py:1041 run_embedded_attempt(opts)` — **94 Zeilen**
+### 10. ~~`runtime.py:1041 run_embedded_attempt(opts)` — **94 Zeilen**~~ ✅ **erledigt 2026-09-21** (Commit `e39c825`)
 - **Smell:** Long function + Feature envy (`opts`, `session`, `tools`, `delivery` …).
-- **Fix:** Fallback-Kaskade (Stolperstein: `reject_thinking`-Erwartung!) in `_choose_model(...)`; Attempt-Bau in `_build_attempt(...)`.
-- **ACHTUNG:** `run_embedded_attempt` wird **AWAITED** — Async-Fakes in Tests müssen echt `async def` sein (PEP-479, Stolperstein runtime-Runde).
+- **Fix (umgesetzt):** `run_embedded_attempt` → **94 → 44 Zeilen** (AST-verifiziert, 0 doppelte private Modul-Namen, 0 Inline-Blöcke > 10 Z; Body = reine Orchestrierung). 5 neue **Modul-Level**-Helper:
+  - **`_build_runtime_info(opts)`** (15 Z) — `RuntimeInfo` (agent_id, host, model, default_model, os, arch, shell, channel aus `session_key.split(":")[-1]` wenn len ≥ 3).
+  - **`_build_attempt_system_prompt(opts, runtime_info, context_files)`** (17 Z) — `build_agent_system_prompt(BuildAgentSystemPromptParams(…))` mit `workspace_dir=os.path.abspath(…)`, `tool_names=opts.tools_allow or ALL_TOOL_NAMES`, `skills_prompt`, `default_think_level`, `bootstrap_mode`.
+  - **`_resolve_effective_prompt(opts)`** (8 Z) — Bootstrap-Präfix (`build_agent_user_prompt_prefix(bootstrap_mode) + "\n\n"`) **nur** wenn `opts.is_new_session`, sonst roher `opts.prompt`.
+  - **`_resolve_active_tools(workspace_dir, opts)`** (9 Z) — `create_selma_tools()` + Filter auf `tools_allow` falls gesetzt.
+  - **`async _create_attempt_session(system_prompt, tools, opts)`** (20 Z) — frische `AgentSessionManager(session_file=Path(opts.session_file))` + `await create_agent_session(CreateSessionOptions(…))`.
+- **Hinweis:** Ursprünglich geplant war `_choose_model`/`_build_attempt` (Fallback-Kaskade) — die Fallback-Kaskade liegt aber in `run_embedded_pi_agent` (Layer 2), nicht hier; `run_embedded_attempt` ist der saubere Layer-3-Execution-Pfad → Aufspaltung entlang der echten Verantwortungen (Info/Prompt/Präfix/Tools/Session).
+- **ACHTUNG (eingehalten, Stolperstein #5):** `run_embedded_attempt` wird **AWAITED** — A/B-Fakes (`execute_prompt`, `create_agent_session`) sind echt `async def`, nie `lambda`/sync.
+- **Verifikation:** A/B-Differential **7 Cases** (`full` / `new_session_bootstrap` / `tools_allow` / `thinking` / `exec_raise` / `abort_signal` / `no_skills`) gegen `git show HEAD:src/selma/runtime.py` → `/tmp/old_rt.py` per **in-process Dual-Load** (**niemals** `git stash`, Stolperstein 25) → **7/7 OK** (Exception-Typ/-Message, normalisiertes Result, Event-Reihenfolge + Captured-Param-Sets). **Suite 730 passed / 0 failed** (62 s), `runtime.py` **99 %** (423 stmts / 3 Miss L955-957), Gesamt **99 %**. `ruff check` + `ruff format --check` grün (90 Dateien), `mypy src/selma` **0 errors / 30 files**, `find ~/.selma -type f` → 0. `_scratch_p210/` + `/tmp/old_rt.py` geräumt (Stolperstein 26/28 — destruk­tive Befehle isoliert).
 
-### 11. `tools.py:140 make_browser_tool` — **117 Zeilen** (mit 9-Param-`execute`)
+### 11. ~~`tools.py:140 make_browser_tool` — **117 Zeilen**~~ ✅ **erledigt 2026-09-21**
 - **Smell:** Long function + Excessive parameter list (9 Parameter in `execute`!).
-- **Fix:** Parameter in einen `BrowserParams`-Datensatz; `execute`-Body in `if action in (...)`-Ketten statt lange `if/elif`.
-- **Coverage:** `tools.py` 99 % halten.
+- **Fix (umgesetzt):** `execute` **117 → 20 Z** (nur noch Signature + `BrowserParams`-Konstruktion + `_run_browser(cwd, params)`; `make_browser_tool`-Wrapper = Docstring + diese eine verschachtelte Funktion). Neue **Modul-Level**-Symbole (AST-verifiziert, 0 doppelte private Modul-Namen, 0 Inline-Blöcke > 10 Z):
+  - **`@dataclass(frozen=True) class BrowserParams`** — 7 Felder (`url`, `action="extract"`, `selector/value/script/screenshot_path/wait_for` optional).
+  - **`_page_text_truncated(page)`** — `body`-Text + Truncation-Note bei `_BROWSER_MAX_CHARS` (aus extract/click gehoben — gemeinsamer Pfad).
+  - **5 Handler, einheitliche Signatur `(page: Any, cwd: str, params: BrowserParams) -> str`:** `_browser_extract`, `_browser_screenshot` (einziger `cwd`-Consumer: Default-Pfad), `_browser_click` (selector-Check + `wait_for_load_state`), `_browser_fill` (selector+value-Check), `_browser_evaluate` (script-Check).
+  - **`_BROWSER_ACTIONS`-Tuple** (Name → Handler) + **`_dispatch_browser_action(page, cwd, params)`** (Lookup-Loop statt 5× `if/elif`; unbekanntes Action → gleicher `"Error: unknown action '…'"`-String wie vorher).
+  - **`_run_browser(cwd, params)`** — Session-Lifecycle (launch → new_page → goto → optionales `wait_for_selector` → dispatch → close). **Semantik 1:1:** `launch()` AUFFERHALB des try/except (Fehler propagieren nach oben), Page-Fehler → `"Error: {e}"`-Strings (P1#3: breite `except` bewusst belassen).
+- **Erste Testrunde (10 Browser-Tests rot):** Handler hatten initiale Signatur `(page, params)`, Dispatcher rief aber `(page, cwd, params)` → `TypeError`. Fix: alle 5 Handler auf `(page, cwd, params)` → danach grün. (Lektion: Signatur-Einheitlichkeit vor dem ersten Lauf prüfen — Dispatcher-Call ist die Quelle der Wahrheit.)
+- **Verifikation:** A/B-Differential **16 Cases** gegen `git show HEAD:src/selma/tools.py` → `/tmp/old_tools.py` per **in-process Dual-Load** (**niemals** `git stash`, Stolperstein 25) → **16/16 byte-identisch** (alle 5 Actions, Default-Pfade, Fehler-Strings, launch-Fehler-Propagation, `wait_for`). **Suite 730 passed / 0 failed** (62 s), `tools.py` **99 %** (159 stmts / 2 Miss L343-344), Gesamt **99 %**. `ruff check` + `ruff format --check` grün (90 Dateien), `mypy src/selma` **0 errors / 30 files**, `find ~/.selma -type f` → 0, `/tmp/old_tools.py` isoliert geräumt (St-26/28).
 
 ### 12. `memory_index.py:305 _hybrid_search(...)` — **83 Zeilen, 5-Param**
 - **Smell:** Long function + 5 Parameter (inkl. `mtime_by_path`-Optional, das 2026-09-09 ein echtes Bug-Trigger hat).
