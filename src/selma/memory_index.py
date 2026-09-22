@@ -83,6 +83,28 @@ class EmbeddingProvider:
 
 
 # ════════════════════════════════════════════════════════════
+# SEARCH CONTAINER
+# ════════════════════════════════════════════════════════════
+
+
+@dataclass
+class _SearchContext:
+    """
+    Immutable carrier for the shared state of one search run
+    (query, FTS query, limits, embedder, temporal-decay mtimes).
+    Passed between the FTS/vec stages of _hybrid_search so no
+    stage needs its own 5-parameter signature.
+    """
+
+    query: str
+    fts_query: str
+    max_results: int
+    min_score: float | None
+    embedder: EmbeddingProvider
+    mtime_by_path: dict[str, float]
+
+
+# ════════════════════════════════════════════════════════════
 # MEMORY INDEX
 # ════════════════════════════════════════════════════════════
 
@@ -253,7 +275,15 @@ class MemoryIndex:
         mtime_by_path = self._load_mtimes() if self._temporal_decay else {}
 
         if self._vector_search and self._embedder:
-            return self._hybrid_search(query, fts_query, max_results, min_score, mtime_by_path)
+            ctx = _SearchContext(
+                query=query,
+                fts_query=fts_query,
+                max_results=max_results,
+                min_score=min_score,
+                embedder=self._embedder,
+                mtime_by_path=mtime_by_path,
+            )
+            return self._hybrid_search(ctx)
         return self._fts_search(fts_query, max_results, min_score, mtime_by_path)
 
     # ── FTS-only search ───────────────────────────────────────
@@ -302,25 +332,12 @@ class MemoryIndex:
 
     # ── Hybrid search ─────────────────────────────────────────
 
-    def _hybrid_search(
-        self,
-        query: str,
-        fts_query: str,
-        max_results: int,
-        min_score: float | None,
-        mtime_by_path: dict[str, float],
-    ) -> list[SearchResult]:
-        """
-        FTS5 candidates → re-rank with cosine similarity → hybrid score.
-        Falls back to FTS-only if query embedding fails.
-        """
-        assert self._embedder is not None
-
-        # Get a larger FTS candidate pool for re-ranking
-        candidate_limit = max(max_results * 3, 30)
+    def _hybrid_fts_stage(self, ctx: _SearchContext) -> list[sqlite3.Row]:
+        """Stage 1: FTS5 candidate pool for re-ranking (_connect call #1)."""
+        candidate_limit = max(ctx.max_results * 3, 30)
         try:
             with self._connect() as conn:
-                fts_rows = conn.execute(
+                return conn.execute(
                     """
                     SELECT path, content, bm25(chunks_fts) AS score
                     FROM   chunks_fts
@@ -328,23 +345,16 @@ class MemoryIndex:
                     ORDER  BY score
                     LIMIT  ?
                     """,
-                    (fts_query, candidate_limit),
+                    (ctx.fts_query, candidate_limit),
                 ).fetchall()
         except sqlite3.OperationalError as e:
-            logger.warning("Hybrid FTS stage failed | query=%r error=%s", fts_query, e)
+            logger.warning("Hybrid FTS stage failed | query=%r error=%s", ctx.fts_query, e)
             return []
 
-        if not fts_rows:
-            return []
-
-        # Query embedding
-        query_vec = self._embedder.embed(query)
-        if query_vec is None:
-            logger.warning("Query embedding failed — falling back to FTS-only")
-            return self._fts_search(fts_query, max_results, min_score, mtime_by_path)
-
-        # Load stored embeddings for candidates
-        candidate_paths = list({row["path"] for row in fts_rows})
+    def _load_candidate_vectors(
+        self, ctx: _SearchContext, candidate_paths: list[str]
+    ) -> dict[tuple[str, int], list[float]]:
+        """Stage 2: stored embeddings for the candidates (_connect call #2)."""
         stored: dict[tuple[str, int], list[float]] = {}
         try:
             with self._connect() as conn:
@@ -357,10 +367,21 @@ class MemoryIndex:
                 stored[(vr["path"], vr["chunk_idx"])] = json.loads(vr["embedding"])
         except Exception as e:
             logger.warning("Loading embeddings failed | error=%s", e)
+        return stored
 
-        # Build chunk_idx lookup: (path, content) → chunk_idx
-        # We match FTS rows to their stored vector by path + position
-        # Use a per-path counter since FTS returns rows in order
+    def _hybrid_rank(
+        self,
+        ctx: _SearchContext,
+        query_vec: list[float],
+        fts_rows: list[sqlite3.Row],
+        stored: dict[tuple[str, int], list[float]],
+    ) -> list[SearchResult]:
+        """
+        Stage 3: mix cosine similarity with normalised BM25.
+
+        Chunk→vector matching uses a per-path counter (FTS rows come
+        in order, so row N of a path maps to chunk_idx N of that path).
+        """
         path_counters: dict[str, int] = {}
 
         results: list[SearchResult] = []
@@ -378,13 +399,37 @@ class MemoryIndex:
             else:
                 base_score = bm25_norm
 
-            score = self._apply_decay(base_score, path, mtime_by_path)
-            if min_score is not None and score < min_score:
+            score = self._apply_decay(base_score, path, ctx.mtime_by_path)
+            if ctx.min_score is not None and score < ctx.min_score:
                 continue
             results.append(SearchResult(path=path, content=row["content"], score=score))
 
         results.sort(key=lambda r: r.score, reverse=True)
-        return results[:max_results]
+        return results[: ctx.max_results]
+
+    def _hybrid_search(self, ctx: _SearchContext) -> list[SearchResult]:
+        """
+        FTS5 candidates → re-rank with cosine similarity → hybrid score.
+        Falls back to FTS-only if query embedding fails.
+        """
+        fts_rows = self._hybrid_fts_stage(ctx)
+        if not fts_rows:
+            return []
+
+        if ctx.embedder is None:
+            logger.warning("No query embedder available — falling back to FTS-only")
+            return self._fts_search(ctx.fts_query, ctx.max_results, ctx.min_score, ctx.mtime_by_path)
+
+        query_vec = ctx.embedder.embed(ctx.query)
+        if query_vec is None:
+            logger.warning("Query embedding failed — falling back to FTS-only")
+            return self._fts_search(ctx.fts_query, ctx.max_results, ctx.min_score, ctx.mtime_by_path)
+
+        # Load stored embeddings for candidates
+        candidate_paths = list({row["path"] for row in fts_rows})
+        stored = self._load_candidate_vectors(ctx, candidate_paths)
+
+        return self._hybrid_rank(ctx, query_vec, fts_rows, stored)
 
     # ── Internals ────────────────────────────────────────────
 

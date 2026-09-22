@@ -109,11 +109,17 @@ Vorgaben (wie bei den Coverage-Runden):
 - **Erste Testrunde (10 Browser-Tests rot):** Handler hatten initiale Signatur `(page, params)`, Dispatcher rief aber `(page, cwd, params)` → `TypeError`. Fix: alle 5 Handler auf `(page, cwd, params)` → danach grün. (Lektion: Signatur-Einheitlichkeit vor dem ersten Lauf prüfen — Dispatcher-Call ist die Quelle der Wahrheit.)
 - **Verifikation:** A/B-Differential **16 Cases** gegen `git show HEAD:src/selma/tools.py` → `/tmp/old_tools.py` per **in-process Dual-Load** (**niemals** `git stash`, Stolperstein 25) → **16/16 byte-identisch** (alle 5 Actions, Default-Pfade, Fehler-Strings, launch-Fehler-Propagation, `wait_for`). **Suite 730 passed / 0 failed** (62 s), `tools.py` **99 %** (159 stmts / 2 Miss L343-344), Gesamt **99 %**. `ruff check` + `ruff format --check` grün (90 Dateien), `mypy src/selma` **0 errors / 30 files**, `find ~/.selma -type f` → 0, `/tmp/old_tools.py` isoliert geräumt (St-26/28).
 
-### 12. `memory_index.py:305 _hybrid_search(...)` — **83 Zeilen, 5-Param**
+### 12. ~~`memory_index.py:305 _hybrid_search(...)` — **83 Zeilen, 5-Param**~~ ✅ **erledigt 2026-09-21**
 - **Smell:** Long function + 5 Parameter (inkl. `mtime_by_path`-Optional, das 2026-09-09 ein echtes Bug-Trigger hat).
-- **Fix:** FTS-Stage, Vec-Stage, Rerank in 3 Methoden; `mtime_by_path: dict[str,float] | None = None` als Teil eines `_SearchContext`-Objekts.
-- **ACHTUNG:** Call-Zählung von `_connect` (Stolperstein memory_index-Runde) — Tests patchen an Position 1/2, Refactor darf Call-Reihenfolge NICHT ändern.
-- **Coverage:** `memory_index.py` 100 % halten.
+- **Fix (umgesetzt):** `_hybrid_search` → **83 → 23 Z** (AST-verifiziert, 0 doppelte private Modul-Namen, 0 Inline-Blöcke > 10 Z; Body = reine Orchestrierung). Neue Symbole:
+  - **`@dataclass _SearchContext`** (Modul-Ebene, L91) — 6 Felder (`query, fts_query, max_results, min_score, embedder, mtime_by_path`); ersetzt die 5-Param-Signatur, `None`-able Embedder ist jetzt ausdrücklich darstellbar.
+  - **`_hybrid_fts_stage(ctx)`** (16 Z) — Stage 1: FTS5-Kandidaten-Pool, `sqlite3.OperationalError` → `[]`. **`_connect`-Call #1** (Reihenfolge unverändert — Stolperstein memory_index-Runde eingehalten).
+  - **`_load_candidate_vectors(ctx, candidate_paths) -> dict[(path, chunk_idx), vec]`** (17 Z) — Stage 2: chunks_vec-Load, `Exception` → `{}` (BM25-degradation). **`_connect`-Call #2**.
+  - **`_hybrid_rank(ctx, query_vec, fts_rows, stored)`** (37 Z) — Stage 3: Cosine+BM25-Mix, per-path-Counter für chunk_idx, `_apply_decay` mit `ctx.mtime_by_path`, `min_score`-Filter, Sort+Truncate.
+  - **`search()`** baut den `ctx` (mtime_by_path via `_load_mtimes()` bei `temporal_decay`, sonst `{}`).
+- **Defensive Erweiterung:** `ctx.embedder is None` → FTS-only-Fallback (neu; im Happy-Path unerreichbar via `search()`, da dort `self._embedder` geprüft wird — aber `_hybrid_search` ist semi-public API). eigener Test `test_hybrid_search_without_embedder_falls_back_to_fts`.
+- **ACHTUNG (eingehalten):** `_connect`-Call-Reihenfolge in Tests unverändert (1. = FTS-Select, 2. = chunks_vec-Load) — `_flaky_connect`-Helper + 4 umbenannte 5-Param-Callstellen auf `_ctx(…)`.
+- **Verifikation:** **53/53** `test_unit_memory.py` (52 + 1 neuer Test), **Full-Suite 731 passed / 0 failed** (62 s), `memory_index.py` **100 %** (249 stmts / 0 Miss), Gesamt **99 %**. `ruff check` + `ruff format --check` grün, `mypy src/selma` **0 errors / 30 files**, `find ~/.selma -type f` → 0. A/B-Differential **7/7 PASS** (full-hybrid / embed-None-Fallback / FTS-Stage-Fehler / flaky-chunks_vec / min_score 1.1 / min_score 0.0 / No-Result) + defensive-None-Case — in-process Dual-Load gegen `git show HEAD:src/selma/memory_index.py` → `/tmp/old_mi.py` (Stolperstein 25 — **nie** `git stash`); A/B-Bug in der ersten Skript-Runde: `@dataclass`-Modul fehlt in `sys.modules` → Fix: Moduls-Name eintragen vor `exec`. `_scratch_p212/` + `/tmp/old_mi.py` geräumt (St-26/28).
 
 ---
 

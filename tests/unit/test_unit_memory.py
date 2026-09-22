@@ -34,6 +34,20 @@ def _make_workspace(tmp: str) -> Path:
     return ws
 
 
+def _ctx(idx, query: str, fts_query: str, max_results: int = 5, min_score: float | None = None):
+    """Builds a _SearchContext for direct _hybrid_search() calls (embedder from idx!)."""
+    from selma.memory_index import _SearchContext
+
+    return _SearchContext(
+        query=query,
+        fts_query=fts_query,
+        max_results=max_results,
+        min_score=min_score,
+        embedder=idx._embedder,  # bound attribute: patch.object(idx, "_embedder") wird reflektiert
+        mtime_by_path={},
+    )
+
+
 def _run_unit(name: str, fn) -> bool:
     try:
         fn()
@@ -913,7 +927,43 @@ def test_hybrid_search_fts_stage_sqlite_error_returns_empty():
         idx = MemoryIndex(workspace_dir=str(ws), vector_search=True)
         idx.ensure_schema()
         with mock.patch.object(idx, "_connect", side_effect=OperationalError("db locked")):
-            assert idx._hybrid_search("python", '"python"', 5, None, {}) == []
+            assert idx._hybrid_search(_ctx(idx, "python", '"python"')) == []
+
+
+def test_hybrid_search_without_embedder_falls_back_to_fts():
+    """Embedder fehlt im Context (Defensiv-Branch) → FTS-Fallback statt Crash."""
+    from selma.memory_index import MemoryIndex, _SearchContext
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = _make_workspace(tmp)
+        (ws / "MEMORY.md").write_text("- Favourite colour: Blue\n", encoding="utf-8")
+        idx = MemoryIndex(workspace_dir=str(ws))
+        idx.sync()
+        ctx = _SearchContext(
+            query="favourite colour blue",
+            fts_query='"blue"',
+            max_results=5,
+            min_score=None,
+            embedder=None,
+            mtime_by_path={},
+        )
+        results = idx._hybrid_search(ctx)
+        assert len(results) == 1
+        assert "Blue" in results[0].content
+
+
+def _flaky_connect(idx):
+    """_connect: 1. Aufruf (FTS-Select) ok, 2. Aufruf (chunks_vec-Load) → RuntimeError."""
+    real_connect = idx._connect
+    state = {"n": 0}
+
+    def flaky_connect():
+        state["n"] += 1
+        if state["n"] == 2:
+            raise RuntimeError("disk error")
+        return real_connect()
+
+    return flaky_connect
 
 
 def test_hybrid_search_embedding_load_error_degrades_to_bm25():
@@ -951,14 +1001,14 @@ def test_hybrid_search_embedding_load_error_degrades_to_bm25():
             return real_connect()
 
         with (
-            mock.patch.object(idx, "_connect", flaky_connect),
+            mock.patch.object(idx, "_connect", _flaky_connect(idx)),
             mock.patch.object(
                 idx,
                 "_embedder",
             ) as emb2,
         ):
             emb2.embed = mock.MagicMock(return_value=[1.0, 0.0])  # Query-Embedding ok
-            results = idx._hybrid_search("alpha beta gamma", '"alpha"', 5, None, {})
+            results = idx._hybrid_search(_ctx(idx, "alpha beta gamma", '"alpha"'))
 
         assert len(results) == 1
         # Kein Vektor ladbar → Score = purer normalisierter BM25:
@@ -981,7 +1031,7 @@ def test_hybrid_search_no_candidates_returns_empty():
 
         with mock.patch.object(idx, "_embedder") as emb:
             emb.embed = mock.MagicMock(return_value=[1.0])
-            assert idx._hybrid_search("zzz", '"zzzxyzzy"', 5, None, {}) == []
+            assert idx._hybrid_search(_ctx(idx, "zzz", '"zzzxyzzy"')) == []
 
 
 def test_hybrid_search_reranks_with_cosine_similarity():
@@ -1007,7 +1057,7 @@ def test_hybrid_search_reranks_with_cosine_similarity():
         )  # Query: cos() == 0.6
         with mock.patch.object(idx, "_embedder", emb):
             idx.sync()
-            results = idx._hybrid_search("alpha beta gamma", '"alpha"', 5, None, {})
+            results = idx._hybrid_search(_ctx(idx, "alpha beta gamma", '"alpha"'))
 
         assert len(results) == 1
         assert results[0].path == "MEMORY.md"
@@ -1065,7 +1115,7 @@ def test_hybrid_search_respects_min_score():
         with mock.patch.object(idx, "_embedder", emb):
             idx.sync()
             # Score ≤ 1.0 → mit min_score=1.1 filtert:
-            assert idx._hybrid_search("alpha beta gamma", '"alpha"', 5, 1.1, {}) == []
+            assert idx._hybrid_search(_ctx(idx, "alpha beta gamma", '"alpha"', min_score=1.1)) == []
 
 
 def test_apply_decay_rewards_recency():
