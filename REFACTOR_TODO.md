@@ -109,7 +109,7 @@ Vorgaben (wie bei den Coverage-Runden):
 - **Erste Testrunde (10 Browser-Tests rot):** Handler hatten initiale Signatur `(page, params)`, Dispatcher rief aber `(page, cwd, params)` → `TypeError`. Fix: alle 5 Handler auf `(page, cwd, params)` → danach grün. (Lektion: Signatur-Einheitlichkeit vor dem ersten Lauf prüfen — Dispatcher-Call ist die Quelle der Wahrheit.)
 - **Verifikation:** A/B-Differential **16 Cases** gegen `git show HEAD:src/selma/tools.py` → `/tmp/old_tools.py` per **in-process Dual-Load** (**niemals** `git stash`, Stolperstein 25) → **16/16 byte-identisch** (alle 5 Actions, Default-Pfade, Fehler-Strings, launch-Fehler-Propagation, `wait_for`). **Suite 730 passed / 0 failed** (62 s), `tools.py` **99 %** (159 stmts / 2 Miss L343-344), Gesamt **99 %**. `ruff check` + `ruff format --check` grün (90 Dateien), `mypy src/selma` **0 errors / 30 files**, `find ~/.selma -type f` → 0, `/tmp/old_tools.py` isoliert geräumt (St-26/28).
 
-### 12. ~~`memory_index.py:305 _hybrid_search(...)` — **83 Zeilen, 5-Param**~~ ✅ **erledigt 2026-09-21**
+### 12. ~~`memory_index.py:305 _hybrid_search(...)` — **83 Zeilen, 5-Param**~~ ✅ **erledigt 2026-09-22** (Commit `488a5e3`)
 - **Smell:** Long function + 5 Parameter (inkl. `mtime_by_path`-Optional, das 2026-09-09 ein echtes Bug-Trigger hat).
 - **Fix (umgesetzt):** `_hybrid_search` → **83 → 23 Z** (AST-verifiziert, 0 doppelte private Modul-Namen, 0 Inline-Blöcke > 10 Z; Body = reine Orchestrierung). Neue Symbole:
   - **`@dataclass _SearchContext`** (Modul-Ebene, L91) — 6 Felder (`query, fts_query, max_results, min_score, embedder, mtime_by_path`); ersetzt die 5-Param-Signatur, `None`-able Embedder ist jetzt ausdrücklich darstellbar.
