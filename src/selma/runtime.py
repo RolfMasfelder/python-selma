@@ -47,6 +47,7 @@ from selma.helper import get_workspace, now_iso, now_ms
 from selma.resource_loader import ResourceLoader
 from selma.session_store import (
     SessionRecord,
+    SessionRef,
     SessionStore,
     SkillsSnapshot,
     is_session_fresh,
@@ -276,8 +277,7 @@ def _resolve_skills_snapshot(
 
 
 def get_session(
-    session_key: str | None,
-    session_id: str | None,
+    ref: SessionRef,
     config: SelmaConfig,
     cwd: str,
 ) -> tuple[SessionStore, SessionRecord, bool, str]:
@@ -287,7 +287,7 @@ def get_session(
     Returns (store, session_record, is_new_session, session_file).
     """
     store = load_session_store(cwd=cwd)
-    session_record, is_new_session = resolve_session(store, session_key, session_id, config)
+    session_record, is_new_session = resolve_session(store, ref, config)
 
     if not is_new_session and not is_session_fresh(
         session_record,
@@ -355,10 +355,10 @@ class CommandContext(BaseModel):
     model: str
     timeout_ms: int
     bootstrap_mode: BootstrapMode
+    # session_key + session_id als ein Referenz-Paar (P3#14), gesetzt in _prepare_command
+    session_ref: SessionRef
     thinking_level: str | None = None
     skills_snapshot: SkillsSnapshot | None = None
-    session_key: str | None = None
-    session_id: str | None = None
     abort_signal: asyncio.Event | None = None
     tools_allow: list[str] | None = None
 
@@ -391,13 +391,13 @@ def _prepare_command(
     run_id = str(uuid.uuid4())[:8]
     started_at = now_ms()
 
-    add_span_infos(run_id=run_id, session_key=session_key)
+    session_ref = SessionRef(session_key=session_key, session_id=session_id)
+    add_span_infos(run_id=run_id, session_key=session_ref.session_key)
 
     config = load_config(workspace_dir)
 
     store, session_record, is_new_session, session_file = get_session(
-        session_key,
-        session_id,
+        session_ref,
         config,
         workspace_dir,
     )
@@ -443,8 +443,7 @@ def _prepare_command(
         bootstrap_mode=bootstrap_mode,
         thinking_level=thinking_level,
         skills_snapshot=skills_snapshot,
-        session_key=session_key,
-        session_id=session_id,
+        session_ref=session_ref,
         abort_signal=abort_signal,
         timeout_ms=timeout_ms,
         tools_allow=tools_allow,

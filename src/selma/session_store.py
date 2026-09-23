@@ -30,6 +30,7 @@ import json
 import logging
 import shutil
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -258,10 +259,24 @@ def save_session_store(store: SessionStore) -> None:
 # ════════════════════════════════════════════════════════════
 
 
+@dataclass
+class SessionRef:
+    """
+    Bundles the session_key + session_id pair that callers pass around
+    to identify (or create) a session — the data clump that used to be
+    threaded as two parallel optionals (P3#14).
+
+    Both fields may be None; at least one is required for a meaningful
+    reference (validated by the caller, see runtime._prepare_command).
+    """
+
+    session_key: str | None = None
+    session_id: str | None = None
+
+
 def resolve_session(
     store: SessionStore,
-    session_key: str | None,
-    session_id: str | None,
+    ref: SessionRef,
     config: SelmaConfig,
 ) -> tuple[SessionRecord, bool]:
     """
@@ -270,9 +285,9 @@ def resolve_session(
     Returns (session_record, is_new_session).
 
     Steps:
-      1. Take session_key and normalise (lowercase)
+      1. Take ref.session_key and normalise (lowercase)
          → look up directly in the store
-      2. Take session_id
+      2. Take ref.session_id
          → linear search through all records
       3. Nothing found → create new SessionRecord,
          add to store, return is_new=True
@@ -285,23 +300,23 @@ def resolve_session(
     from store-entry.ts and store.ts (OpenClaw).
     """
     # ── 1. session_key → direct lookup ──────────────────────
-    if session_key:
-        normalized = _normalize_key(session_key)
+    if ref.session_key:
+        normalized = _normalize_key(ref.session_key)
         if normalized in store.sessions:
             record = store.sessions[normalized]
             trace_and_log(logger, f"Session found by key | key={normalized} id={record.session_id}")
             return record, False
 
     # ── 2. session_id → linear search ───────────────────────
-    if session_id:
+    if ref.session_id:
         for record in store.sessions.values():
-            if record.session_id == session_id:
-                trace_and_log(logger, f"Session found by id | id={session_id}")
+            if record.session_id == ref.session_id:
+                trace_and_log(logger, f"Session found by id | id={ref.session_id}")
                 return record, False
 
     # ── 3. Create new session ────────────────────────────────
     new_id = str(uuid.uuid4())
-    new_key = _normalize_key(session_key or session_id or new_id[:8])
+    new_key = _normalize_key(ref.session_key or ref.session_id or new_id[:8])
 
     record = SessionRecord(
         session_id=new_id,

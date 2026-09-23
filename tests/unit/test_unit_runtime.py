@@ -23,7 +23,7 @@ import pytest
 from selma import runtime as rt
 from selma.agent import AgentEvent, AgentTool, ToolCallRequest, ToolSchema
 from selma.config import SelmaConfig
-from selma.session_store import SessionRecord, SessionStore, SkillsSnapshot
+from selma.session_store import SessionRecord, SessionRef, SessionStore, SkillsSnapshot
 
 
 def run[T](coro: Any) -> T:
@@ -299,9 +299,9 @@ class TestGetSession:
         cfg = SelmaConfig()
         seen: dict[str, Any] = {}
         monkeypatch.setattr(rt, "load_session_store", lambda cwd: seen.update(load=cwd) or store)
-        monkeypatch.setattr(rt, "resolve_session", lambda s, k, i, c: (rec, True))
+        monkeypatch.setattr(rt, "resolve_session", lambda s, ref, c: (rec, True))
         monkeypatch.setattr(rt, "resolve_session_file", lambda r, cwd: f"/tmp/{r.session_id}.jsonl")
-        out_store, out_rec, is_new, session_file = rt.get_session("fresh", None, cfg, "/cwd")
+        out_store, out_rec, is_new, session_file = rt.get_session(SessionRef(session_key="fresh"), cfg, "/cwd")
         assert out_store is store
         assert is_new is True
         assert session_file == "/tmp/new1.jsonl"
@@ -312,10 +312,10 @@ class TestGetSession:
         store = self._fake_store()
         rec = SessionRecord(session_id="old1", session_key="keep")
         monkeypatch.setattr(rt, "load_session_store", lambda cwd: store)
-        monkeypatch.setattr(rt, "resolve_session", lambda s, k, i, c: (rec, False))
+        monkeypatch.setattr(rt, "resolve_session", lambda s, ref, c: (rec, False))
         monkeypatch.setattr(rt, "is_session_fresh", lambda r, at_hour, idle_minutes: True)
         monkeypatch.setattr(rt, "resolve_session_file", lambda r, cwd: "/tmp/x.jsonl")
-        _s, out_rec, is_new, _f = rt.get_session("keep", None, SelmaConfig(), "/cwd")
+        _s, out_rec, is_new, _f = rt.get_session(SessionRef(session_key="keep"), SelmaConfig(), "/cwd")
         assert out_rec is rec
         assert is_new is False
 
@@ -324,11 +324,11 @@ class TestGetSession:
         old_rec = SessionRecord(session_id="old1", session_key="keep")
         new_rec = SessionRecord(session_id="new2", session_key="keep")
         monkeypatch.setattr(rt, "load_session_store", lambda cwd: store)
-        monkeypatch.setattr(rt, "resolve_session", lambda s, k, i, c: (old_rec, False))
+        monkeypatch.setattr(rt, "resolve_session", lambda s, ref, c: (old_rec, False))
         monkeypatch.setattr(rt, "is_session_fresh", lambda r, at_hour, idle_minutes: False)
         monkeypatch.setattr(rt, "reset_session", lambda s, r, cwd: new_rec)
         monkeypatch.setattr(rt, "resolve_session_file", lambda r, cwd: "/tmp/y.jsonl")
-        _s, out_rec, is_new, _f = rt.get_session("keep", None, SelmaConfig(), "/cwd")
+        _s, out_rec, is_new, _f = rt.get_session(SessionRef(session_key="keep"), SelmaConfig(), "/cwd")
         assert out_rec is new_rec
         assert is_new is True
 
@@ -392,7 +392,7 @@ class TestAgentCommand:
             state["delivered"] = (result, delivery)
 
         monkeypatch.setattr(rt, "load_config", lambda cwd: cfg)
-        monkeypatch.setattr(rt, "get_session", lambda k, i, c, cwd: (store, rec, False, "/tmp/sess.jsonl"))
+        monkeypatch.setattr(rt, "get_session", lambda ref, c, cwd: (store, rec, False, "/tmp/sess.jsonl"))
         monkeypatch.setattr(rt, "detect_bootstrap_mode", lambda ws: "none")
         monkeypatch.setattr(rt, "get_skills_snapshot_version", lambda ws: "v1")
         monkeypatch.setattr(rt, "build_skill_snapshot", lambda ws, ver: SkillsSnapshot(version="v1", skill_names=[]))
@@ -433,7 +433,7 @@ class TestAgentCommand:
         monkeypatch.setattr(
             rt,
             "get_session",
-            lambda k, i, c, cwd: (SessionStore(store_path="/tmp/s.json"), rec, True, "/tmp/s.jsonl"),
+            lambda ref, c, cwd: (SessionStore(store_path="/tmp/s.json"), rec, True, "/tmp/s.jsonl"),
         )
         result = run(rt.agent_command("Moin", session_key="k", delivery=delivery, runtime=rt.RuntimeEnv(cwd="/cwd")))
         assert result.payloads[0].text == "OK"
@@ -524,7 +524,7 @@ class TestAgentCommand:
         monkeypatch.setattr(
             rt,
             "get_session",
-            lambda k, i, c, cwd: (
+            lambda ref, c, cwd: (
                 SessionStore(store_path="/tmp/s.json"),
                 SessionRecord(session_id="r9", session_key="net"),
                 True,

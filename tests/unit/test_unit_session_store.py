@@ -18,6 +18,7 @@ from selma import session_store as ss
 from selma.session_store import (
     DEFAULT_AGENT_ID,
     SessionRecord,
+    SessionRef,
     SessionStore,
     SkillsSnapshot,
     _normalize_key,
@@ -222,7 +223,7 @@ def test_save_failure_removes_tmp_and_raises(tmp_path, monkeypatch):
 def test_resolve_session_by_key_is_case_and_ws_insensitive(tmp_path):
     rec = SessionRecord(session_key="agent:main:web", session_id="abc12345")
     store = SessionStore(sessions={"agent:main:web": rec})
-    found, is_new = resolve_session(store, "  Agent:MAIN:Web ", None, SimpleConfig())
+    found, is_new = resolve_session(store, SessionRef(session_key="  Agent:MAIN:Web "), SimpleConfig())
     assert not is_new
     assert found is rec
 
@@ -230,7 +231,7 @@ def test_resolve_session_by_key_is_case_and_ws_insensitive(tmp_path):
 def test_resolve_session_by_id(tmp_path):
     rec = SessionRecord(session_key="whatever", session_id="ffff0000")
     store = SessionStore(sessions={"whatever": rec})
-    found, is_new = resolve_session(store, None, "ffff0000", SimpleConfig())
+    found, is_new = resolve_session(store, SessionRef(session_id="ffff0000"), SimpleConfig())
     assert not is_new
     assert found is rec
 
@@ -240,14 +241,16 @@ def test_resolve_session_key_lookup_wins_over_id(tmp_path):
     rec_id = SessionRecord(session_key="other", session_id="bbbb2222")
     store = SessionStore(sessions={"agent:main:web": rec_key, "other": rec_id})
     # key gibt es, id zeigt auf einen anderen Record → Key-Suche gewinnt
-    found, is_new = resolve_session(store, "agent:main:web", "bbbb2222", SimpleConfig())
+    found, is_new = resolve_session(
+        store, SessionRef(session_key="agent:main:web", session_id="bbbb2222"), SimpleConfig()
+    )
     assert not is_new
     assert found is rec_key
 
 
 def test_resolve_session_creates_new_for_key_only(tmp_path):
     store = SessionStore(sessions={})
-    rec, is_new = resolve_session(store, "Agent:Main:Fresh", None, SimpleConfig())
+    rec, is_new = resolve_session(store, SessionRef(session_key="Agent:Main:Fresh"), SimpleConfig())
     assert is_new
     assert rec.session_key == "agent:main:fresh"  # normalisiert gespeichert
     assert "agent:main:fresh" in store.sessions
@@ -256,7 +259,7 @@ def test_resolve_session_creates_new_for_key_only(tmp_path):
 
 def test_resolve_session_creates_new_without_key_or_id(tmp_path):
     store = SessionStore(sessions={})
-    rec, is_new = resolve_session(store, None, None, SimpleConfig())
+    rec, is_new = resolve_session(store, SessionRef(), SimpleConfig())
     assert is_new
     assert len(rec.session_id) == 36  # UUID4 mit Bindestrichen
     assert rec.session_key == rec.session_id[:8]

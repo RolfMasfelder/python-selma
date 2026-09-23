@@ -131,10 +131,10 @@ Vorgaben (wie bei den Coverage-Runden):
 - **Risk:** **hoch** — viele Import-Stellen, `selma.runtime` in sys.modules-Mocks (Stolperstein #6).
 - **Nur mit Rolf-Grünlicht**, wenn nach P1-P2 das Gefühl besteht "es wird dicker".
 
-### 14. Data-Cluster: `session_key + session_id`-Paar wird durch 5+ Stellen weitergereicht
+### 14. ~~Data-Cluster: `session_key + session_id`-Paar wird durch 5+ Stellen weitergereicht~~ ✅ **erledigt 2026-09-23**
 - **Smell:** Data clumps (siehe `agent_command`, `resolve_session`, `reset_session`, `agent_runtime._execute`).
-- **Fix:** Ggf. `SessionRef(session_key, session_id)`-Datensatz einführen, wenn nach P2 klar ist, dass es sich häuft.
-- **VORHER:** `grep -rn 'session_key.*session_id' src/selma | wc -l` zählt aktuelle Ausdehnung.
+- **Fix (umgesetzt):** `SessionRef(session_key, session_id)`-Frozen-Dataclass in `session_store.py` (modul-Level); `resolve_session(store, ref, config)` + `runtime.get_session(ref, config, cwd)` nehmen jetzt ein `SessionRef` statt zwei optionaler Parallel-Parameter. `CommandContext.session_ref: SessionRef` (Pydantic-Feld, no-default-Gruppe). **Öffentliche API stabil:** `run_agent`/`agent_command` behalten `session_key=`/`session_id=`-KWArgs; `_prepare_command` baut das Ref. `ctx.session_key`-Reader in command_manager/agent_runtime/gateway sind `NormalizedTurnInput`-Objekte → nicht betroffen.
+- **Abnahme (2026-09-23):** Suite **731 passed**, ruff + `ruff format` grün, `mypy src/selma` 0/30, Gesamt-Coverage **99 %** (`session_store.py` 98 % → Ziel ≥ zuvor), `find ~/.selma -type f` → 0, A/B-Dual-Load (git `HEAD`: vs. Worktree, St-25 **kein Stash**, St-30 `sys.modules` vor `exec`) → 4/4 PASS (key/id/Validierung, public-API-Pfad).
 
 ### 15. `my_tools.py` 874 Zeilen — Modul-Struktur
 - **Smell:** 8 separate `make_*_tool`-Werkzeuge + Helpers in einer Datei; nicht unbedingt ein Problem, aber bei #6 + #11 (tools.py-Browser) wächst der Code.
