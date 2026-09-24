@@ -368,7 +368,7 @@ def make_memory_get_tool(cwd: str) -> AgentTool:
             properties={
                 "path": {
                     "type": "string",
-                    "description": "File path relative to workspace, e.g. '.selma/workspace/MEMORY.md' or '.selma/workspace/memory/2026-05-12.md'",
+                    "description": "File path relative to workspace, e.g. 'MEMORY.md' or 'memory/2026-05-12.md' ",
                 },
                 "from_line": {
                     "type": "integer",
