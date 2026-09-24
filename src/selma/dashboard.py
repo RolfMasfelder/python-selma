@@ -56,7 +56,21 @@ def parse_sse_events(response: httpx.Response) -> Generator[dict]:
 
 
 # -- Settings Dialog
-CONFIG_FILE = ".selma/selma.json"
+CONFIG_FILE: Final = ".selma/selma.json"
+
+# UI-Texte des Settings-Dialogs (String-Konstanten: stabile Referenzen für Tests/Übersetzungen)
+SETTINGS_DIALOG_TITLE: Final = "⚙️ Settings"
+SETTINGS_SUBHEADER: Final = "Configuration"
+VIEW_INFO_TEMPLATE: Final = "Currently viewing: `{path}`"
+JSON_PARSE_ERROR_TEMPLATE: Final = "Error details: {msg} at line {lineno}, column {colno}"
+VALIDATION_ERROR_TEMPLATE: Final = "Validation Failed: {msg} at line {lineno}"
+SAVE_SUCCESS: Final = "File updated successfully."
+EDIT_MODE_SUBHEADER: Final = "Edit Mode"
+EDIT_MODE_CAPTION: Final = "Editing raw text. No comments allowed in standard JSON."
+CONFIG_TEXTAREA_LABEL: Final = "JSON Content"
+BTN_EDIT_FILE: Final = "✎ Edit File"
+BTN_SAVE_CHANGES: Final = "💾 Save Changes"
+BTN_DISCARD: Final = "✖ Discard"
 
 
 def read_raw_file(filepath: str) -> str:
@@ -77,63 +91,75 @@ def write_raw_file(filepath: str, content: str) -> None:
         f.write(content)
 
 
-@st.dialog("⚙️ Settings", width="large")
+def _render_config_view() -> None:
+    """Anzeigemodus: aktuelle Config als JSON-Viewer zeigen + Edit-Button bereitstellen."""
+    col_a, col_b = st.columns([0.8, 0.2])
+
+    with col_a:
+        st.info(VIEW_INFO_TEMPLATE.format(path=CONFIG_FILE))
+    with col_b:
+        if st.button(BTN_EDIT_FILE):
+            st.session_state.config_editing = True
+            st.rerun()
+
+    raw = st.session_state.config_raw_content
+    try:
+        # Parse the raw string into a typed Dictionary for the st.json viewer
+        st.json(json.loads(raw))
+    except json.JSONDecodeError as e:
+        st.error(JSON_PARSE_ERROR_TEMPLATE.format(msg=e.msg, lineno=e.lineno, colno=e.colno))
+        # Im Fehlerfall den rohen Inhalt zeigen, damit die fehlerhafte Stelle auffindbar ist
+        st.code(raw)
+
+
+def _save_config(edited_text: str) -> None:
+    """Validiere das Edit-Ergebnis und schreibe es; bei ungültigem JSON: Fehler zeigen + im Edit-Modus bleiben."""
+    try:
+        # Validation: Try to parse the input string to ensure it's valid JSON
+        _: dict[str, Any] = json.loads(edited_text)
+    except json.JSONDecodeError as e:
+        st.error(VALIDATION_ERROR_TEMPLATE.format(msg=e.msg, lineno=e.lineno))
+        return
+
+    # Write the raw string to the file
+    write_raw_file(CONFIG_FILE, edited_text)
+    st.session_state.config_raw_content = edited_text
+    st.session_state.config_editing = False
+    st.success(SAVE_SUCCESS)
+    st.rerun()
+
+
+def _render_edit_mode() -> None:
+    """Bearbeitungsmodus: Config als roher Text, Save/Discard-Buttons."""
+    st.subheader(EDIT_MODE_SUBHEADER)
+    st.caption(EDIT_MODE_CAPTION)
+
+    # edited_text will be a string from the text_area
+    edited_text: str = st.text_area(label=CONFIG_TEXTAREA_LABEL, value=st.session_state.config_raw_content, height=400)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button(BTN_SAVE_CHANGES):
+            _save_config(edited_text)
+
+    with col2:
+        if st.button(BTN_DISCARD):
+            st.session_state.config_editing = False
+            st.rerun()
+
+
+@st.dialog(SETTINGS_DIALOG_TITLE, width="large")
 def settings_dialog():
-    st.subheader("Configuration")
+    st.subheader(SETTINGS_SUBHEADER)
 
     if "config_raw_content" not in st.session_state or not st.session_state.config_editing:
         st.session_state.config_raw_content = read_raw_file(CONFIG_FILE)
 
     if not st.session_state.config_editing:
-        col_a, col_b = st.columns([0.8, 0.2])
-
-        with col_a:
-            st.info(f"Currently viewing: `{CONFIG_FILE}`")
-        with col_b:
-            if st.button("✎ Edit File"):
-                st.session_state.config_editing = True
-                st.rerun()
-
-        try:
-            # Parse the raw string into a typed Dictionary for the st.json viewer
-            json.loads(st.session_state.config_raw_content)
-            st.json(json.loads(st.session_state.config_raw_content))
-        except Exception as e:
-            st.error(f"Error details: {e.msg} at line {e.lineno}, column {e.colno}")
-            st.code(st.session_state.config_raw_content)
-
+        _render_config_view()
     else:
-        # --- EDIT MODE ---
-        st.subheader("Edit Mode")
-        st.caption("Editing raw text. No comments allowed in standard JSON.")
-
-        # edited_text will be a string from the text_area
-        edited_text: str = st.text_area(label="JSON Content", value=st.session_state.config_raw_content, height=400)
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("💾 Save Changes"):
-                try:
-                    # Validation: Try to parse the input string to ensure it's valid JSON
-                    _: dict[str, Any] = json.loads(edited_text)
-
-                    # Write the raw string to the file
-                    write_raw_file(CONFIG_FILE, edited_text)
-
-                    st.session_state.config_raw_content = edited_text
-                    st.session_state.config_editing = False
-
-                    st.success("File updated successfully.")
-                    st.rerun()
-
-                except json.JSONDecodeError as e:
-                    st.error(f"Validation Failed: {e.msg} at line {e.lineno}")
-
-        with col2:
-            if st.button("✖ Discard"):
-                st.session_state.config_editing = False
-                st.rerun()
+        _render_edit_mode()
 
 
 # -- Sidebar

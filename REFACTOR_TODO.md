@@ -140,10 +140,10 @@ Vorgaben (wie bei den Coverage-Runden):
 - **Smell:** 8 separate `make_*_tool`-Werkzeuge + Helpers in einer Datei; nicht unbedingt ein Problem, aber bei #6 + #11 (tools.py-Browser) wächst der Code.
 - **Fix (optional):** `my_tools/grep.py`, `my_tools/exec.py`, `my_tools/find.py` … — **NUR wenn #6 + #11 tatsächlich unhandlich werden**.
 
-### 16. `dashboard.py:81 settings_dialog()` — 56 Zeilen, 2× `except Exception` (L101, L200)
+### 16. `dashboard.py settings_dialog()` — 56 Zeilen, `except Exception` (L101) ✅ **erledigt 2026-09-24**
 - **Smell:** Feature envy + broad except.
-- **Fix:** UI-Texte in String-Konstanten, Dialog-Logik in 3-4 Funktionen.
-- **Priorität:** niedrig (UI, wenig test-covered vermutlich) — erst #3 (breite-except-Liste) abarbeiten.
+- **Fix (umgesetzt):** UI-Texte in `Final`-String-Konstanten; Dialog-Logik in 4 Funktionen: `settings_dialog` (Orchestrierung, 10 Z) + `_render_config_view()` (19 Z, Anzeige-Modus inkl. `st.json`-Rendering) + `_render_edit_mode()` (18 Z, Textarea + Buttons) + `_save_config()` (15 Z, Validierung → Write → State). **Exception-Narrowing:** L101 `except Exception` → `except json.JSONDecodeError` (fixt den latenten `AttributeError` auf Nicht-JSONDecode-Fehlern, da nur `e.msg`/`e.lineno`/`e.colno` existieren). Das L200-`except Exception` im Chat-Stream-Block bleibt bewusst (P1#3-Kategorie, Rolf-Grünlicht) — dient dort als „unerwartet"-Sicherheitsnetz hinter `httpx.ConnectError`/`RuntimeError`.
+- **Abnahme (2026-09-24):** Suite **731 passed**, ruff + `ruff format` grün (90 Dateien), `mypy src/selma` **0/30**, `dashboard.py` **96 %** (150 stmts / 6 Miss), Gesamt **99 %**, `find ~/.selma -type f` → 0, A/B-Dual-Load (5 Szenarien: initial_view, initial_invalid, save_valid, save_invalid, discard) gegen `/tmp`-Kopie von `git show HEAD:` → **5/5 PASS** (Errors/Success/Info-Texte, session_state, Datei-Inhalt, st.json/st.code-Verhalten byte-identisch; St-25 kein Stash, St-28 isoliert aufgeräumt).
 
 ---
 
