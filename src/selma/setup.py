@@ -56,9 +56,11 @@ def setup(agent_base_dir: str = "."):
     selma_dir = base_path / ".selma"
     json_path = selma_dir / "selma.json"
     workspace_dir = selma_dir / "workspace"
-    template_dir = base_path / "templates"
-    skills_src_dir = base_path / "skills"
+    template_dir = base_path / "setup" / "templates"
+    skills_src_dir = base_path / "setup" / "skills"
     skills_dst_dir = workspace_dir / "skills"
+    images_src_dir = base_path / "setup" / "images"
+    images_dst_dir = base_path / "images"
 
     print(f"[bold blue]Initializing Selma Environment[/bold blue]\n[dim]Root: {base_path}[/dim]")
 
@@ -98,6 +100,9 @@ def setup(agent_base_dir: str = "."):
 
         # 5. Copy skills into workspace
         handle_skills(skills_src_dir, skills_dst_dir)
+
+        # 6. Copy images into <root>/images/ (consumed by dashboard.py)
+        handle_images(images_src_dir, images_dst_dir)
 
         print("\n[bold green]Setup completed successfully.[/bold green]")
 
@@ -184,6 +189,35 @@ def handle_skills(skills_src: Path, skills_dst: Path):
         print(f"[green]✔[/green] {copied_skills} skill(s) synced to workspace/skills/")
     elif skipped_skills:
         print("[yellow]![/yellow] All skills up to date in workspace. [dim]Skipping.[/dim]")
+
+
+def handle_images(images_src: Path, images_dst: Path):
+    """
+    Copies images from setup/images/ → <root>/images/ (where dashboard.py reads them).
+    - Creates the destination directory if needed.
+    - Skips files that already exist (no overwrite of user content).
+    """
+    if not images_src.exists():
+        print(f"[yellow]⚠[/yellow] Images source [dim]({images_src})[/dim] not found. Skipping.")
+        return
+
+    image_files = [f for f in images_src.iterdir() if f.is_file()]
+    if not image_files:
+        print("[yellow]⚠[/yellow] Images source directory is empty. Skipping.")
+        return
+
+    images_dst.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for f in image_files:
+        if (images_dst / f.name).exists():
+            print(f"  [yellow]![/yellow] Already exists, skipping: [cyan]{f.name}[/cyan]")
+            continue
+        shutil.copy2(f, images_dst / f.name)
+        print(f"  [blue]→[/blue] Copied: [cyan]images/{f.name}[/cyan]")
+        copied += 1
+
+    if copied:
+        print(f"[green]✔[/green] {copied} image(s) deployed to images/")
 
 
 if __name__ == "__main__":

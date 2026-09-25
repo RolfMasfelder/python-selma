@@ -19,6 +19,9 @@ venv
 .mypy_cache/
 .vscode/
 
+# Setup-Artefakt (wird von `python -m selma.setup` aus setup/images/ kopiert)
+/images/
+
 # Dokus
 selma_doc/
 doc/

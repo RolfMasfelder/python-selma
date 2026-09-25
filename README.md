@@ -5,7 +5,7 @@
 
 ```html
 <p align="center">
-  <img src="images/selma_portrait.png" width="300" alt="Agent Selma interacting with futuristic holographic data displays." />
+  <img src="setup/images/selma_portrait.png" width="300" alt="Agent Selma interacting with futuristic holographic data displays." />
 </p>
 ```
 
@@ -40,8 +40,10 @@ src/selma/          ← installable "selma" package (the gateway/runtime code)
     agent.py, agent_session.py ← low-level agent primitives (Agent, AgentSession)
     my_tools.py, my_resource_loader.py, my_system_prompt.py ← generic counterparts of tools.py/resource_loader.py/system_prompt.py
 tests/               ← pytest suite + standalone integration scripts (see "Test Scripts" below)
-skills/              ← SKILL.md folders deployed into the workspace by `python -m selma.setup`
-templates/           ← default workspace context files (AGENTS.md, SOUL.md, ...)
+setup/               ← source assets deployed by `python -m selma.setup`
+    templates/       ← default workspace context files (AGENTS.md, SOUL.md, ...)
+    skills/          ← SKILL.md folders deployed into the workspace
+    images/          ← dashboard / readme images (copied to <root>/images/ by setup)
 ```
 
 Selma is installed in editable mode (`pip install -e .`), so `import selma` resolves to `src/selma/` from anywhere in the repo.

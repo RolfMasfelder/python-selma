@@ -14,7 +14,7 @@ import json
 import re
 from pathlib import Path
 
-from selma.setup import SELMA_CONFIG_CONTENT, handle_skills, handle_templates, setup
+from selma.setup import SELMA_CONFIG_CONTENT, handle_images, handle_skills, handle_templates, setup
 
 
 def _norm(out: str) -> str:
@@ -64,6 +64,8 @@ def test_setup_second_run_idempotent(tmp_path, capsys):
     out = _norm(_run_setup(tmp_path, capsys))
     assert "Directory already exists" in out
     assert "Config already exists" in out
+    assert "Template source" in out and "not found. Skipping copy." in out  # Setup-Root ohne setup/
+    assert "Images source" in out and "not found. Skipping." in out
     assert "Setup completed successfully" in out
 
 
@@ -204,3 +206,59 @@ def test_handle_skills_up_to_date_resyncs_spec_but_keeps_existing(tmp_path, caps
     # Benutzerdatei bleibt unangetastet
     assert (dst / skill_name / "script.py").read_text(encoding="utf-8") == "benutzerin"
     assert "skill(s) synced" in out
+
+
+# -- handle_images -------------------------------------------------
+
+
+def test_handle_images_missing_source(tmp_path, capsys):
+    handle_images(tmp_path / "images", tmp_path / "dst")
+    assert "not found. Skipping" in _norm(capsys.readouterr().out)
+
+
+def test_handle_images_empty_dir(tmp_path, capsys):
+    (tmp_path / "images").mkdir()
+    handle_images(tmp_path / "images", tmp_path / "dst")
+    assert "Images source directory is empty" in capsys.readouterr().out
+    assert not (tmp_path / "dst").exists()
+
+
+def test_handle_images_copies_new_skips_existing(tmp_path, capsys):
+    src = tmp_path / "images"
+    src.mkdir()
+    (src / "a.png").write_bytes(b"img-a")
+    (src / "b.png").write_bytes(b"img-b")
+    dst = tmp_path / "images_dst"
+    (dst).mkdir()
+    (dst / "a.png").write_bytes(b"user-content")  # bestehende Datei bleibt
+
+    handle_images(src, dst)
+    out = capsys.readouterr().out
+
+    assert (dst / "b.png").read_bytes() == b"img-b"
+    assert (dst / "a.png").read_bytes() == b"user-content"  # kein Overwrite
+    assert "Copied: images/b.png" in out
+    assert "Already exists, skipping: a.png" in out
+
+
+def test_setup_fresh_run_deploys_templates_skills_and_images(tmp_path, capsys):
+    """Vollständiger frischer Lauf mit setup/-Quellbaum (Variante b:
+    Templates → .selma/workspace/, Skills → .selma/workspace/skills/,
+    Images → <root>/images/)."""
+    setup_src = tmp_path / "setup"
+    templates = setup_src / "templates"
+    templates.mkdir(parents=True)
+    (templates / "AGENTS.md").write_text("tpl", encoding="utf-8")
+    (setup_src / "skills").mkdir()
+    (setup_src / "skills" / "alpha").mkdir()
+    (setup_src / "skills" / "alpha" / "SKILL.md").write_text("# alpha", encoding="utf-8")
+    (setup_src / "images").mkdir()
+    (setup_src / "images" / "selma.png").write_bytes(b"img")
+
+    setup(str(tmp_path))
+    out = capsys.readouterr().out
+
+    assert (tmp_path / ".selma/workspace/AGENTS.md").read_text(encoding="utf-8") == "tpl"
+    assert (tmp_path / ".selma/workspace/skills/alpha/SKILL.md").read_text(encoding="utf-8") == "# alpha"
+    assert (tmp_path / "images/selma.png").read_bytes() == b"img"
+    assert "1 image(s) deployed to images/" in out
