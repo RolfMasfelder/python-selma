@@ -699,7 +699,7 @@ class TestMemoryFlush:
         monkeypatch.setattr(rt, "agent_command", fake_agent_command)
         run(rt.memory_flush("mykey", "/cwd-x"))
         assert "Memory Flush" in args["prompt"]
-        assert "memory/" in args["prompt"]
+        assert ".selma/workspace/memory/" in args["prompt"]
         assert args["kw"]["session_key"] == "mykey"
         assert args["kw"]["runtime"].cwd == "/cwd-x"
 

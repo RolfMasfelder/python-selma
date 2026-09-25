@@ -114,14 +114,16 @@ class MemoryIndex:
     Manages the SQLite FTS5 (+ optional vector) index for all
     memory files in the workspace.
 
-    Usage:
-        index = MemoryIndex(workspace_dir=".selma/workspace")
+    Usage (workspace_dir = the full workspace directory containing MEMORY.md,
+    i.e. <repo-root>/.selma/workspace — the constructor does NOT append the
+    prefix itself; get_memory_index() does that for you):
+        index = MemoryIndex(workspace_dir="/pfad/zu/repo-root/.selma/workspace")
         index.sync()
         results = index.search("important decision")
 
     With vector search + temporal decay enabled:
         index = MemoryIndex(
-            workspace_dir=".selma/workspace",
+            workspace_dir="/pfad/zu/repo-root/.selma/workspace",
             vector_search=True,
             embed_model="nomic-embed-text",
             embed_base_url="http://localhost:11434/v1",

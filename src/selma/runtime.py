@@ -726,12 +726,18 @@ def repair_thinking_not_supported(
 
 
 async def memory_flush(session_key: str, cwd: str) -> None:
-    """Silent agent turn that saves important context to memory/YYYY-MM-DD.md before compaction."""
+    """Silent agent turn that saves important context to .selma/workspace/memory/YYYY-MM-DD.md before compaction.
+
+    Note: the write tool resolves paths against <root> (the repo/workspace cwd),
+    so the prompt points at the full workspace-relative location
+    ".selma/workspace/memory/YYYY-MM-DD.md" — deliberately NOT "memory/YYYY-MM-DD.md"
+    (which would create a stray <root>/memory/ directory next to the repo).
+    """
     today = date.today().isoformat()
     prompt = (
         f"[Memory Flush — silent turn]\n"
         f"Before this session is compacted, save important context to the daily memory file.\n"
-        f"Use the `write` tool to save to: memory/{today}.md\n"
+        f"Use the `write` tool to save to: .selma/workspace/memory/{today}.md\n"
         f"If the file already exists, read it first with `memory_get`, then rewrite "
         f"with the existing content plus new entries appended.\n"
         f"Format: concise bullet points. Include key decisions, facts, preferences, "
