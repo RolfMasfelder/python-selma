@@ -398,6 +398,12 @@ def make_memory_search_tool(cwd: str, config: SelmaConfig | None = None) -> Agen
     within a session. Only changed files are re-indexed.
 
     cwd is the workspace directory (same convention as memory_get).
+
+    Query semantics: full-text search matches within ~400-char chunks with
+    AND over all query terms — so a query only hits if the terms occur in
+    the SAME chunk. For multi-word queries, this can mean 0 results even
+    when each term exists in the files; prefer short, specific keyword
+    queries (or single well-chosen terms) to get reliable hits.
     """
     from selma.memory_index import get_memory_index
 
@@ -452,13 +458,21 @@ def make_memory_search_tool(cwd: str, config: SelmaConfig | None = None) -> Agen
         description=(
             "Search MEMORY.md and daily memory notes using full-text search. "
             "Use when looking for past decisions, facts, or notes by topic. "
-            "Prefer memory_get when you know the exact file to read."
+            "Prefer memory_get when you know the exact file to read. "
+            "Query tip: matches are AND over all terms within a ~400-char chunk, "
+            "so multi-word queries only hit if every term is in the same chunk — "
+            "use short, specific keyword queries (ideally one or two terms) "
+            "for reliable results."
         ),
         parameters=ToolSchema(
             properties={
                 "query": {
                     "type": "string",
-                    "description": "Search query — keywords or a short phrase",
+                    "description": (
+                        "Search query — short, specific keywords or a single "
+                        "term. Multi-term queries are ANDed and must occur in "
+                        "the same ~400-char chunk to match."
+                    ),
                 },
                 "max_results": {
                     "type": "integer",
