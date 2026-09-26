@@ -85,16 +85,8 @@ def setup(agent_base_dir: str = "."):
             workspace_dir.mkdir(parents=True)
             print(f"[green]✔[/green] Created workspace: [cyan]{workspace_dir.name}[/cyan]")
 
-        # 3a. Create memory subdirectory + empty MEMORY.md
-        memory_dir = workspace_dir / "memory"
-        memory_dir.mkdir(parents=True, exist_ok=True)
-        memory_index = memory_dir / "MEMORY.md"
-        if not memory_index.exists():
-            memory_index.write_text("# Memory\n", encoding="utf-8")
-            print("[green]✔[/green] Created memory index: [cyan].selma/workspace/memory/MEMORY.md[/cyan]")
-        else:
-            print("[yellow]![/yellow] Memory index already exists: [cyan].selma/workspace/memory/MEMORY.md[/cyan]")
-
+        # 3b. MEMORY.md comes from setup/templates/ (copied by handle_templates,
+        #     only if not already present — like all other templates)
         # 4. Handle Template copying
         handle_templates(template_dir, workspace_dir)
 
@@ -112,8 +104,8 @@ def setup(agent_base_dir: str = "."):
 
 def handle_templates(template_dir: Path, target_dir: Path):
     """
-    Checks if templates need to be copied to the workspace.
-    Copies only if the target files do not exist.
+    Copies template files to the workspace, file by file.
+    Files that already exist in the workspace are skipped (never overwritten).
     """
     if not template_dir.exists():
         print(f"[yellow]⚠[/yellow] Template source [dim]({template_dir})[/dim] not found. Skipping copy.")
@@ -126,19 +118,18 @@ def handle_templates(template_dir: Path, target_dir: Path):
         print("[yellow]⚠[/yellow] Template directory is empty.")
         return
 
-    # Check if ANY of the template files already exist in the target
-    files_already_present = any((target_dir / f.name).exists() for f in template_files)
+    copied = 0
+    for file in sorted(template_files):
+        if (target_dir / file.name).exists():
+            continue
+        shutil.copy2(file, target_dir / file.name)
+        print(f"  [blue]→[/blue] Copied: {file.name}")
+        copied += 1
 
-    if not files_already_present:
-        print(f"[yellow]i[/yellow] Workspace is empty. Copying [bold]{len(template_files)}[/bold] templates...")
-        for file in template_files:
-            shutil.copy2(file, target_dir / file.name)
-            print(f"  [blue]→[/blue] Copied: {file.name}")
-        print("[green]✔ Templates deployed.[/green]")
+    if copied:
+        print(f"[green]✔ {copied} template(s) deployed.[/green]")
     else:
-        print(
-            "[yellow]![/yellow] Workspace already contains template files. [dim]Skipping copy to prevent overwriting.[/dim]"
-        )
+        print("[yellow]![/yellow] Workspace already contains all template files. [dim]Skipping.[/dim]")
 
 
 def handle_skills(skills_src: Path, skills_dst: Path):

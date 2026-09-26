@@ -48,10 +48,9 @@ def test_setup_fresh_run_creates_full_tree(tmp_path, capsys):
     workspace = selma_dir / "workspace"
     assert workspace.is_dir()
 
-    # MEMORY.md (setup legt sie unter workspace/memory an)
-    memory_index = workspace / "memory/MEMORY.md"
-    assert memory_index.exists()
-    assert "# Memory" in memory_index.read_text(encoding="utf-8")
+    # MEMORY.md liegt NICHT mehr unter memory/ — sie kommt jetzt als Template
+    # direkt in den Workspace (siehe test_handle_templates_*)
+    assert not (workspace / "memory/MEMORY.md").exists()
 
     assert "Setup completed successfully" in out
     assert "Created config" in out
@@ -70,10 +69,13 @@ def test_setup_second_run_idempotent(tmp_path, capsys):
 
 
 def test_setup_survives_error(tmp_path, capsys):
-    # workspace existiert als DATEI → mkdir schlägt fehl
+    # workspace existiert als DATEI → shutil.copy2 in handle_templates schlägt fehl
     selma_dir = tmp_path / ".selma"
     selma_dir.mkdir()
     (selma_dir / "workspace").write_text("ich bin im Weg")
+    # setup-/Quelle vorhanden, damit handle_templates wirklich kopiert (und damit crasht)
+    (tmp_path / "setup" / "templates").mkdir(parents=True)
+    (tmp_path / "setup" / "templates" / "AGENTS.md").write_text("template", encoding="utf-8")
 
     setup(str(tmp_path))
     capsys.readouterr()
@@ -110,7 +112,7 @@ def test_handle_templates_copies_when_workspace_empty(tmp_path, capsys):
 
     assert (workspace / "AGENTS.md").read_text(encoding="utf-8") == "template agents"
     assert (workspace / "SOUL.md").read_text(encoding="utf-8") == "template soul"
-    assert "Copying 2 templates" in out
+    assert "2 template(s) deployed" in out
     assert "Copied: AGENTS.md" in out
 
 
@@ -128,7 +130,28 @@ def test_handle_templates_skips_when_present(tmp_path, capsys):
 
     # Kein overwrite!
     assert (workspace / "AGENTS.md").read_text(encoding="utf-8") == "mein eigener Inhalt"
-    assert "Skipping copy to prevent overwriting" in _norm(out)
+    assert "already contains all template files" in _norm(out)
+
+
+def test_handle_templates_partial_copy_only_missing_files(tmp_path, capsys):
+    """Per-Datei-Logik: Vorhandene bleiben liegen, fehlende (z. B. MEMORY.md)
+    werden trotzdem ergänzt — nur wenn keine Datei im Workspace steht."""
+    template_dir = tmp_path / "templates"
+    template_dir.mkdir()
+    (template_dir / "AGENTS.md").write_text("template", encoding="utf-8")
+    (template_dir / "MEMORY.md").write_text("# Memory\n", encoding="utf-8")
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "AGENTS.md").write_text("mein eigener Inhalt", encoding="utf-8")
+
+    handle_templates(template_dir, workspace)
+    out = _norm(capsys.readouterr().out)
+
+    assert (workspace / "AGENTS.md").read_text(encoding="utf-8") == "mein eigener Inhalt"
+    assert (workspace / "MEMORY.md").read_text(encoding="utf-8") == "# Memory\n"
+    assert "Copied: MEMORY.md" in out
+    assert "1 template(s) deployed" in out
 
 
 def _make_skill(base: Path, name: str, extra_files: dict[str, str] | None = None) -> Path:
