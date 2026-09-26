@@ -13,8 +13,8 @@
 # the first time memory_search is called. Only files whose
 # SHA-256 hash has changed are re-indexed.
 #
-# Database location: <workspace_dir>/../memory.db
-#   → .selma/memory.db  (outside workspace, not agent-visible)
+# Database location: <workspace_dir>/memory.db
+#   → <workspace_dir>/memory.db  (inside workspace, agent-visible)
 # ============================================================
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ class MemoryIndex:
         temporal_decay_rate: float = 0.01,
     ):
         self._workspace = Path(workspace_dir).resolve()
-        db_path = self._workspace / ".selma" / "memory.db"
+        db_path = self._workspace / "memory.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = db_path
         self._vector_search = vector_search
