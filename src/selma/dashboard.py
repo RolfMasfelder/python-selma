@@ -1,13 +1,37 @@
 import json
 import os
+import sys
 from collections.abc import Generator
 from typing import Any, Final
 
 import httpx
 import streamlit as st
 
-WEBCHAT_STREAM_URL: Final = "http://localhost:8000/webchat/stream"
+DEFAULT_WEBCHAT_STREAM_URL: Final = "http://localhost:8000/webchat/stream"
 TITLE: Final = "👩🏻 Selma Agent Dashboard"
+
+
+def resolve_webchat_stream_url(cli_args: list[str] | None = None) -> str:
+    """Resolve die Gateway-WebChat-URL, die das Dashboard anspricht.
+
+    Prioritaet (klarster Bezug zum Aufruf zuerst):
+      1. Streamlit-CLI-Arg `gateway-url=...`  (streamlit run dashboard.py gateway-url=…)
+      2. Env `SELMA_WEBCHAT_URL`
+      3. Default: Main-Gateway auf :8000
+    """
+    args = cli_args if cli_args is not None else sys.argv
+    for arg in args[1:]:
+        if arg.startswith("gateway-url="):
+            return str(arg.partition("=")[2]).rstrip("/")
+    env_url = os.environ.get("SELMA_WEBCHAT_URL")
+    if env_url:
+        return env_url.rstrip("/")
+    return DEFAULT_WEBCHAT_STREAM_URL
+
+
+# Modul-Level: einmal pro App-Prozess auflösen (Streamlit setzt sys.argv auf die
+# nach der App-Datei übergebenen CLI-Args, s. streamlit.web.bootstrap._fix_sys_argv)
+WEBCHAT_STREAM_URL = resolve_webchat_stream_url()
 
 # -- Configuration
 st.set_page_config(page_title=TITLE, layout="wide", initial_sidebar_state="expanded")

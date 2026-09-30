@@ -90,6 +90,43 @@ class FakeClient:
         return resp
 
 
+def test_resolve_webchat_stream_url_cli_arg(tmp_path, monkeypatch):
+    """Cli-Arg gateway-url=… hat Vorrang vor Env und Default (aufrufnaechste Referenz)."""
+    import selma.dashboard as dashboard
+
+    monkeypatch.delenv("SELMA_WEBCHAT_URL", raising=False)
+    assert (
+        dashboard.resolve_webchat_stream_url(["app.py", "gateway-url=http://127.0.0.1:8001/webchat/stream"])
+        == "http://127.0.0.1:8001/webchat/stream"
+    )
+    # Auch wenn Env gesetzt ist: CLI-Arg gewinnt
+    monkeypatch.setenv("SELMA_WEBCHAT_URL", "http://127.0.0.1:8999/webchat")
+    assert (
+        dashboard.resolve_webchat_stream_url(["app.py", "gateway-url=http://127.0.0.1:8002"]) == "http://127.0.0.1:8002"
+    )
+
+
+def test_resolve_webchat_stream_url_env(monkeypatch):
+    """Ohne Cli-Arg gilt SELMA_WEBCHAT_URL."""
+    import selma.dashboard as dashboard
+
+    monkeypatch.setenv("SELMA_WEBCHAT_URL", "http://127.0.0.1:8123/webchat/stream/")
+    assert (
+        dashboard.resolve_webchat_stream_url(["app.py", "--unbekanntes-flag=irgendetwas"])
+        == "http://127.0.0.1:8123/webchat/stream"
+    )
+    # Ohne CLI-Args komplett:
+    assert dashboard.resolve_webchat_stream_url(["app.py"]) == "http://127.0.0.1:8123/webchat/stream"
+
+
+def test_resolve_webchat_stream_url_default(monkeypatch):
+    """Ohne CLI und ohne Env: Main-Gateway auf :8000."""
+    import selma.dashboard as dashboard
+
+    monkeypatch.delenv("SELMA_WEBCHAT_URL", raising=False)
+    assert dashboard.resolve_webchat_stream_url(["dashboard.py"]) == "http://localhost:8000/webchat/stream"
+
+
 def test_parse_sse_events_basic():
     from selma.dashboard import parse_sse_events
 
