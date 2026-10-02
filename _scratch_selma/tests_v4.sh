@@ -94,6 +94,9 @@ else
   bad "B13 v5 src-Symlink fehlt"
 fi
 grep -q 'gateway-url="http://127.0.0.1:${GATEWAY_PORT}/webchat/stream"' "$GEN" && ok "B14 v5 start.sh uebergibt gateway-url= CLI-Arg" || bad "B14 v5 gateway-url in start.sh"
+[ -f /home/rolf/workspace/selma/start.sh ] && diff -q "$GEN" /home/rolf/workspace/selma/start.sh >/dev/null 2>&1 \
+  && ok "B16 v6 generiertes start.sh IDENTISCH zu MAIN-Repo start.sh (Kopie statt Template)" \
+  || bad "B16 v6 Generiert != MAIN-Repo start.sh"
 out="$("$PY" /home/rolf/workspace/selma/_scratch_selma/b15_check.py 2>&1)"; rc=$?
 if [ $rc -eq 0 ]; then
   ok "B15 v5 dashboard: resolve_webchat_stream_url (CLI>Env>Default, strip-'/')"
