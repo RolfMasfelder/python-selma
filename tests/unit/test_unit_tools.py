@@ -622,13 +622,15 @@ def test_all_tool_names_exact() -> None:
         "browser",
         "memory_get",
         "memory_search",
+        "tts_speak",
+        "stt_transcribe",
     ]
 
 
 def test_create_selma_tools_names_match_and_shape(fake_memory_index: dict) -> None:
     tool_list = tools.create_selma_tools("/tmp/anywhere")
     assert [t.name for t in tool_list] == tools.ALL_TOOL_NAMES
-    assert len(tool_list) == 12
+    assert len(tool_list) == 14
     for t in tool_list:
         assert t.name
         assert isinstance(t.description, str) and t.description

@@ -65,6 +65,29 @@ class SessionConfig(BaseModel):
     reset: SessionResetConfig = Field(default_factory=SessionResetConfig)
 
 
+class TtsAudioConfig(BaseModel):
+    """Piper-TTS-Einstellungen (lokal, offline, reproduzierbar)."""
+
+    voice: str = "de_DE-thorsten-medium"
+    speed: float = 1.0
+    scale: float = 1.0
+
+
+class SttAudioConfig(BaseModel):
+    """faster-whisper-Einstellungen (lokal, CPU-First, int8)."""
+
+    model: str = "small"
+    language: str = "de"
+    beam_size: int = 1
+
+
+class AudioConfig(BaseModel):
+    """Audio-Tools (tts_speak / stt_transcribe)."""
+
+    tts: TtsAudioConfig = Field(default_factory=TtsAudioConfig)
+    stt: SttAudioConfig = Field(default_factory=SttAudioConfig)
+
+
 class AgentInfo(BaseModel):
     id: str = "main"
     name: str = "Selma"
@@ -161,6 +184,7 @@ class SelmaConfig(BaseModel):
     session: SessionConfig = Field(default_factory=SessionConfig)
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    audio: AudioConfig = Field(default_factory=AudioConfig)
 
     # Single agent configuration
     agent: AgentInfo = Field(default_factory=AgentInfo)

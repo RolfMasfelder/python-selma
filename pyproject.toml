@@ -40,6 +40,14 @@ dev = [
     "ruff>=0.16.0",
     "vulture>=2.15.0",
 ]
+audio = [
+    # Lokale Audio-Tools (tts_speak / stt_transcribe in selma/audio_tool.py).
+    # Optional: ohne diese Dependencies fehlen die Tools einfach,
+    # der Rest von selma läuft.
+    "piper-tts>=1.8.0",
+    "faster-whisper>=1.2.1",
+    "onnxruntime>=1.30.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -509,6 +509,8 @@ ALL_TOOL_NAMES: list[str] = [
     "browser",
     "memory_get",
     "memory_search",
+    "tts_speak",
+    "stt_transcribe",
 ]
 
 
@@ -524,7 +526,7 @@ def create_selma_tools(cwd: str, config: SelmaConfig | None = None) -> list[Agen
       - web_search, web_fetch, browser
       - memory_get, memory_search
     """
-    return [
+    result: list[AgentTool] = [
         make_read_tool(cwd),
         make_write_tool(cwd),
         make_edit_tool(cwd),
@@ -538,3 +540,14 @@ def create_selma_tools(cwd: str, config: SelmaConfig | None = None) -> list[Agen
         make_memory_get_tool(cwd),
         make_memory_search_tool(cwd, config=config),
     ]
+
+    # Audio-Tools (tts_speak / stt_transcribe) — lazy import, weil piper /
+    # faster-whisper optionale Dependencies sind; ohne sie fehlen die Tools
+    # einfach (statt dass der Import selma.tools bricht).
+    try:
+        from selma.audio_tool import make_audio_tools
+
+        result.extend(make_audio_tools(config))
+    except (ImportError, FileNotFoundError):
+        pass
+    return result
