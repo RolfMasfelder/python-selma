@@ -308,13 +308,13 @@ class CommandManager:
                 ]
             )
         allowed = list(tools_allow) if not isinstance(tools_allow, list) else tools_allow
-        lines = [f"**Tool allowlist** ({len(allowed)} tool(s))", ""]
+        lines = [f"**Tool allowlist** ({len(allowed)} tool(s))"]
         for name in sorted(allowed):
             lines.append(f"• `{name}`")
         disabled = [n for n in ALL_TOOL_NAMES if n not in allowed]
         if disabled:
-            lines += ["", f"Disabled: {', '.join(f'`{n}`' for n in disabled)}"]
-        return "\n".join(lines)
+            lines += ["Disabled:"] + [f"`{n}`" for n in disabled]
+        return "\n\n".join(lines)
 
     # ── /tools ───────────────────────────────────────────────
 
@@ -323,16 +323,18 @@ class CommandManager:
         active = allowed if allowed is not None else ALL_TOOL_NAMES
         descriptions = get_tool_descriptions()
 
-        lines = [f"**Active tools** ({len(active)}/{len(ALL_TOOL_NAMES)})", ""]
+        # "\n\n" (Absätze) statt "\n": einzelne Newlines werden von Markdown-
+        # Oberflächen (z. B. Web-Admin) zu Fließtext zusammengepellt.
+        lines = [f"**Active tools** ({len(active)}/{len(ALL_TOOL_NAMES)})"]
         for name in active:
             desc = descriptions.get(name, "")
             lines.append(f"`{name}` — {desc}" if desc else f"`{name}`")
 
         if allowed is not None and len(allowed) < len(ALL_TOOL_NAMES):
             disabled = [n for n in ALL_TOOL_NAMES if n not in allowed]
-            lines += ["", f"Disabled: {', '.join(f'`{n}`' for n in disabled)}"]
+            lines += ["Disabled:"] + [f"`{n}`" for n in disabled]
 
-        return "\n".join(lines)
+        return "\n\n".join(lines)
 
     # ── /skills ──────────────────────────────────────────────
 
