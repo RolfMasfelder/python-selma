@@ -79,7 +79,7 @@ ensure_phoenix() {
         return 0
     fi
     echo "  → Phoenix nicht erreichbar — starte Instanz (log: $PHOENIX_LOG)…"
-    env "${PHOENIX_OWNER_ENV}=1" phoenix serve --port "$PHOENIX_PORT" > "$PHOENIX_LOG" 2>&1 &
+    env "${PHOENIX_OWNER_ENV}=1" phoenix serve --port "$PHOENIX_PORT" >> "$PHOENIX_LOG" 2>&1 &
     local i ok=0
     for i in $(seq 1 30); do
         curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null | grep -qE "^[23]" && { ok=1; break; }
@@ -131,12 +131,12 @@ echo ""
 ensure_phoenix
 echo ""
 echo "  → Gateway starten (log: $GATEWAY_LOG)…"
-python -m selma.gateway > "$GATEWAY_LOG" 2>&1 &
+python -m selma.gateway >> "$GATEWAY_LOG" 2>&1 &
 GATEWAY_PID=$!
 echo "    Gateway PID: $GATEWAY_PID"
 echo "  → Streamlit starten (PORT :$STREAMLIT_PORT, log: $STREAMLIT_LOG)…"
 streamlit run src/selma/dashboard.py --server.port="$STREAMLIT_PORT" --server.address=127.0.0.1 --server.headless=true gateway-url="http://127.0.0.1:${GATEWAY_PORT}/webchat/stream" \
-    > "$STREAMLIT_LOG" 2>&1 &
+    >> "$STREAMLIT_LOG" 2>&1 &
 STREAMLIT_PID=$!
 echo "    Streamlit PID: $STREAMLIT_PID"
 echo ""
