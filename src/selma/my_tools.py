@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from selma.agent import AgentTool, ToolSchema
 
@@ -166,7 +167,7 @@ def make_read_tool(cwd: str) -> AgentTool:
     Mirrors createReadTool() from read.ts.
     """
 
-    def execute(path: str, offset: int | None = None, limit: int | None = None, **_) -> str:
+    def execute(path: str, offset: int | None = None, limit: int | None = None, **_: Any) -> str:
         resolved = _resolve(cwd, path)
 
         if not resolved.exists():
@@ -245,7 +246,7 @@ def make_write_tool(cwd: str) -> AgentTool:
     """
     workspace = Path(cwd).resolve()
 
-    def execute(path: str, content: str, **_) -> str:
+    def execute(path: str, content: str, **_: Any) -> str:
         resolved = _resolve(cwd, path)
         try:
             resolved.resolve().relative_to(workspace)
@@ -291,7 +292,7 @@ def make_edit_tool(cwd: str) -> AgentTool:
 
     workspace = Path(cwd).resolve()
 
-    def execute(path: str, old_text: str, new_text: str, **_) -> str:
+    def execute(path: str, old_text: str, new_text: str, **_: Any) -> str:
         resolved = _resolve(cwd, path)
         try:
             resolved.resolve().relative_to(workspace)
@@ -381,7 +382,7 @@ def make_ls_tool(cwd: str) -> AgentTool:
     """
     DEFAULT_LS_LIMIT = 500
 
-    def execute(path: str | None = None, limit: int | None = None, **_) -> str:
+    def execute(path: str | None = None, limit: int | None = None, **_: Any) -> str:
         dir_path = _resolve(cwd, path or ".")
         effective_limit = limit or DEFAULT_LS_LIMIT
 
@@ -598,7 +599,7 @@ def make_grep_tool(cwd: str) -> AgentTool:
         literal: bool = False,
         context: int = 0,
         limit: int | None = None,
-        **_,
+        **_: Any,
     ) -> str:
         search_path = _resolve(cwd, path or ".")
         effective_limit = max(1, limit or DEFAULT_GREP_LIMIT)
@@ -696,7 +697,7 @@ def make_exec_tool(cwd: str) -> AgentTool:
         command: str,
         timeout: int | None = None,
         yieldMs: int | None = None,
-        **_,
+        **_: Any,
     ) -> str:
         effective_timeout = timeout if timeout is not None else DEFAULT_EXEC_TIMEOUT
 
@@ -767,7 +768,7 @@ def make_find_tool(cwd: str) -> AgentTool:
     """
     DEFAULT_FIND_LIMIT = 1000
 
-    def execute(pattern: str, path: str | None = None, limit: int | None = None, **_) -> str:
+    def execute(pattern: str, path: str | None = None, limit: int | None = None, **_: Any) -> str:
         search_path = _resolve(cwd, path or ".")
         effective_limit = limit or DEFAULT_FIND_LIMIT
 

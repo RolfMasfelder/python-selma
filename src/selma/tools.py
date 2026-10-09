@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 def make_web_search_tool() -> AgentTool:
     """Web search via DuckDuckGo (ddgs)."""
 
-    def execute(query: str, count: int = 5, **_) -> str:
+    def execute(query: str, count: int = 5, **_: Any) -> str:
         try:
             results = list(DDGS().text(query, max_results=max(1, count)))
         except Exception as e:
@@ -84,7 +84,7 @@ def make_web_search_tool() -> AgentTool:
 def make_web_fetch_tool() -> AgentTool:
     """Fetch and extract the main text content of a URL using trafilatura."""
 
-    def execute(url: str, **_) -> str:
+    def execute(url: str, **_: Any) -> str:
         try:
             downloaded = trafilatura.fetch_url(url)
         except Exception as e:
@@ -254,7 +254,7 @@ def make_browser_tool(cwd: str) -> AgentTool:
         script: str | None = None,
         screenshot_path: str | None = None,
         wait_for: str | None = None,
-        **_,
+        **_: Any,
     ) -> str:
         params = BrowserParams(
             url=url,
@@ -328,7 +328,7 @@ def make_memory_get_tool(cwd: str) -> AgentTool:
 
     memory_dir = cwd + "/.selma/workspace"
 
-    def execute(path: str, from_line: int = 0, lines: int = 0, **_) -> str:
+    def execute(path: str, from_line: int = 0, lines: int = 0, **_: Any) -> str:
         from pathlib import Path as _Path
 
         # Resolve against workspace and verify the result stays inside it
@@ -434,7 +434,7 @@ def make_memory_search_tool(cwd: str, config: SelmaConfig | None = None) -> Agen
         query: str,
         max_results: int = 10,
         min_score: float | None = None,
-        **_,
+        **_: Any,
     ) -> str:
         if not _synced[0]:
             n = index.sync()

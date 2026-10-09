@@ -116,7 +116,7 @@ def _tts_voice_path(config: SelmaConfig) -> Path:
     return candidates[0]
 
 
-def _load_tts_voice(config: SelmaConfig):
+def _load_tts_voice(config: SelmaConfig) -> Any:
     from piper.voice import PiperVoice  # type: ignore[import]
 
     return PiperVoice.load(str(_tts_voice_path(config)), include_alignments=False)
@@ -127,7 +127,7 @@ def _reset_stt_cache() -> None:
     _STT_MODEL_CACHE.clear()
 
 
-def _stt_model(config: SelmaConfig):
+def _stt_model(config: SelmaConfig) -> Any:
     size = config.audio.stt.model
     if size in _STT_MODEL_CACHE:
         return _STT_MODEL_CACHE[size]
