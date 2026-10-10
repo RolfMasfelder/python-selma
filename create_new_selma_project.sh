@@ -121,44 +121,15 @@ echo "  → src  (Symbolischer Link): $PROJECT_DIR/src -> $SELMA_REPO/src"
 echo ""
 
 # ---------------------------------------------------------------------------
-# 5. selma.setup + Templates/Skills/images aus dem Selma-Repo kopieren
-#    (setup() findet Templates relativ zum Basisverzeichnis nicht mehr —
-#     das ist erwartet und wird hier kompakt nachgeholt, ohne Ueberschreiben.)
+# 5. selma.setup mit den echten Quell-Verzeichnissen aus dem Selma-Repo
+#    (Templates → .selma/workspace/, Skills → workspace/skills/,
+#     Images → <root>/images/; vorhandene Dateien werden nie überschrieben.)
 # ---------------------------------------------------------------------------
 echo "=== Selma-Setup ==="
-( cd "$PROJECT_DIR" && "$PROJECT_DIR/venv/bin/python" -m selma.setup )
-
-WS="${PROJECT_DIR}/.selma/workspace"
-mkdir -p "$WS" "$PROJECT_DIR/images"
-for f in "$SELMA_REPO"/setup/templates/*; do
-    [ -f "$f" ] || continue
-    base="$(basename "$f")"
-    [ -e "$WS/$base" ] && continue
-    cp "$f" "$WS/$base"
-    echo "  → Template:  workspace/$base"
-done
-for s in "$SELMA_REPO"/setup/skills/*/; do
-    sname="$(basename "$s")"
-    [ -f "${s}SKILL.md" ] || continue
-    mkdir -p "$WS/skills/$sname"
-    ( cd "$s" && cp -rn . "$WS/skills/$sname"/ ) 2>/dev/null || true
-    if [ ! -f "$WS/skills/$sname/SKILL.md" ]; then
-        echo "  → Skill:     WARNUNG: skills/$sname/SKILL.md fehlt nach Kopie!"
-    else
-        echo "  → Skill:     workspace/skills/$sname"
-    fi
-done
-if [ -d "$SELMA_REPO/setup/images" ]; then
-    cp -rn "$SELMA_REPO/setup/images/." "$PROJECT_DIR"/images/ 2>/dev/null || true
-    n_img="$(find "$PROJECT_DIR/images" -maxdepth 1 -type f | wc -l)"
-    if [ "$n_img" -eq 0 ]; then
-        echo "  → images/     WARNUNG: images-Verzeichnis bleibt leer (Quelle leer oder Kopie fehlgeschlagen)!"
-    else
-        echo "  → images/     ${n_img} Datei(en) (aus $SELMA_REPO/setup/images)"
-    fi
-else
-    echo "  → images/     (keine Quelle unter $SELMA_REPO/setup/images — übersprungen)"
-fi
+( cd "$PROJECT_DIR" && "$PROJECT_DIR/venv/bin/python" -m selma.setup \
+    --templates "$SELMA_REPO/setup/templates" \
+    --skills "$SELMA_REPO/setup/skills" \
+    --images "$SELMA_REPO/setup/images" )
 echo ""
 
 # ---------------------------------------------------------------------------

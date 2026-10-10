@@ -285,3 +285,30 @@ def test_setup_fresh_run_deploys_templates_skills_and_images(tmp_path, capsys):
     assert (tmp_path / ".selma/workspace/skills/alpha/SKILL.md").read_text(encoding="utf-8") == "# alpha"
     assert (tmp_path / "images/selma.png").read_bytes() == b"img"
     assert "1 image(s) deployed to images/" in out
+
+
+def test_setup_explicit_source_dirs_outside_base(tmp_path, capsys):
+    """create_new_selma_project.sh-Fall: Base-Verzeichnis OHNE setup/-Verzeichnis,
+    Quellen liegen woanders (z. B. im Haupt-Repo). Explicit Params müssen greifen."""
+    base = tmp_path / "projekt"
+    base.mkdir()
+    external = tmp_path / "extern" / "setup"
+    (external / "templates").mkdir(parents=True)
+    (external / "templates" / "MEMORY.md").write_text("# Mem", encoding="utf-8")
+    (external / "skills" / "omega").mkdir(parents=True)
+    (external / "skills" / "omega" / "SKILL.md").write_text("# omega", encoding="utf-8")
+    (external / "images").mkdir()
+    (external / "images" / "x.png").write_bytes(b"px")
+
+    setup(
+        str(base),
+        template_dir=external / "templates",
+        skills_src=external / "skills",
+        images_src=external / "images",
+    )
+    out = capsys.readouterr().out
+
+    assert (base / ".selma/workspace/MEMORY.md").read_text(encoding="utf-8") == "# Mem"
+    assert (base / ".selma/workspace/skills/omega/SKILL.md").read_text(encoding="utf-8") == "# omega"
+    assert (base / "images/x.png").read_bytes() == b"px"
+    assert "not found" not in out

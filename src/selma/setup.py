@@ -48,18 +48,29 @@ SELMA_CONFIG_CONTENT = {
 # -- Functions -------------------------------
 
 
-def setup(agent_base_dir: str = "."):
+def setup(
+    agent_base_dir: str = ".",
+    *,
+    template_dir: Path | None = None,
+    skills_src: Path | None = None,
+    images_src: Path | None = None,
+):
     """
     Initializes Selma's directory structure, configuration, and templates.
+
+    Die Quellen für Templates/Skills/Images liegen standardmäßig in
+    ``<base>/setup/...``. Für Projekte, die den Code via Symlink teilen (z. B.
+    durch create_new_selma_project.sh angelegt), können die eigentlichen
+    Quellverzeichnisse über die optionalen Parameter übergeben werden.
     """
     base_path = Path(agent_base_dir).resolve()
     selma_dir = base_path / ".selma"
     json_path = selma_dir / "selma.json"
     workspace_dir = selma_dir / "workspace"
-    template_dir = base_path / "setup" / "templates"
-    skills_src_dir = base_path / "setup" / "skills"
+    template_dir = template_dir if template_dir is not None else base_path / "setup" / "templates"
+    skills_src_dir = skills_src if skills_src is not None else base_path / "setup" / "skills"
     skills_dst_dir = workspace_dir / "skills"
-    images_src_dir = base_path / "setup" / "images"
+    images_src_dir = images_src if images_src is not None else base_path / "setup" / "images"
     images_dst_dir = base_path / "images"
 
     print(f"[bold blue]Initializing Selma Environment[/bold blue]\n[dim]Root: {base_path}[/dim]")
@@ -212,5 +223,17 @@ def handle_images(images_src: Path, images_dst: Path):
 
 
 if __name__ == "__main__":
-    # Run the setup in the current directory by default
-    setup()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Initialise Selma's environment in the current directory.")
+    parser.add_argument(
+        "--templates", type=Path, default=None, help="Quellverzeichnis für Templates (Default: <root>/setup/templates)"
+    )
+    parser.add_argument(
+        "--skills", type=Path, default=None, help="Quellverzeichnis für Skills (Default: <root>/setup/skills)"
+    )
+    parser.add_argument(
+        "--images", type=Path, default=None, help="Quellverzeichnis für Images (Default: <root>/setup/images)"
+    )
+    args = parser.parse_args()
+    setup(".", template_dir=args.templates, skills_src=args.skills, images_src=args.images)
