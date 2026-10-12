@@ -36,3 +36,5 @@ learnings.md
 .python-version
 *.log
 xyz.txt
+tmp/**
+konto/**
