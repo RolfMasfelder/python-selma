@@ -190,6 +190,30 @@ To restart only the gateway (e.g. after a code change):
 restart_gateway.bat     # Windows
 ```
 
+### Parallel Projects (multiple personas)
+
+Each project folder is one persona: its own `.selma/selma.json`, own workspace/memory, own image. Running several of them at the same time only works cleanly if **both per-project ports** are different, because every project starts **two** TCP services:
+
+| Service | Where the port comes from | Default | Example: `socialmedia` |
+|---|---|---|---|
+| Gateway (FastAPI/WebChat) | `.selma/selma.json` → `channels.webchat.port` | 8000 | 8001 |
+| Dashboard (Streamlit) | `STREAMLIT_PORT` env var in `start.sh` | 8501 | 8502 |
+
+Phoenix is the one **shared** service: `start.sh` reuses an already-running instance (owner-flag logic), so all personas write their traces into the same collector without fighting over ports.
+
+The wiring between the two per-project ports happens automatically: `start.sh` reads `channels.webchat.port` from the **local** `selma.json` and hands `http://127.0.0.1:<port>/webchat/stream` to the dashboard as the `gateway-url` CLI argument. So the rule of thumb is:
+
+1. In the second project's `.selma/selma.json` set a distinct `channels.webchat.port` (e.g. `8001`).
+2. Launch with a distinct dashboard port: `STREAMLIT_PORT=8502 ./start.sh`.
+3. Done — each dashboard now talks to **its own** gateway.
+
+> [!WARNING]
+> If `selma.json` still says port 8000 in two projects, the second gateway fails to bind — or worse, the dashboard silently streams against the **other** project's persona (it just falls back to the configured/default URL). Always make both ports unique per project.
+>
+> Also: open each dashboard at `http://localhost:<port>` — `localhost` and `127.0.0.1` are treated by Firefox as **different origins**, which breaks assets (fonts) when you mix them across tabs/projects.
+
+**Recognising personas by their face:** the dashboard sidebar reads `images/selma.png` (relative to the project directory, `dashboard.py`) — the setup script deploys a default there. To give a persona its own look, replace **`<projekt>/images/selma.png`** with the persona's image (from `setup/images/` or yours). All the other files in `images/` are decorative source material; exactly the `selma.png` file is what the sidebar shows.
+
 ## 🖥 Dashboard
 
 The **Streamlit dashboard** (`src/selma/dashboard.py`) is the primary web interface for chatting with Selma.

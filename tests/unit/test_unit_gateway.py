@@ -522,14 +522,19 @@ class TestRunGateway:
         assert gateway._registry[0].is_enabled(gateway.config) is False
         assert gateway._registry[1].is_enabled(gateway.config) is True
 
-        prev_handlers = list(logging.getLogger().handlers)
         monkeypatch.setattr(gateway, "tracing_setup", lambda *a, **k: None)
         monkeypatch.chdir(tmp_path)
 
+        prev_handlers = list(logging.getLogger().handlers)
         run(gateway.run_gateway())
 
         assert started == [True]
-        assert (tmp_path / "gateway.log").exists()
+        # Kein NEUER FileHandler erlaubt (relative Prüfung: pytest hängt selbst
+        # einen /dev/null-Handler für Capture an) — sonst würde jeder Record
+        # ZWEIMAL in gateway.log landen (Shell-Redirect + FileHandler).
+        new_handlers = [h for h in logging.getLogger().handlers if h not in prev_handlers]
+        assert not any(isinstance(h, logging.FileHandler) for h in new_handlers), new_handlers
+        assert any(isinstance(h, logging.StreamHandler) for h in new_handlers)
         # logging-Handler aufräumen (wurden im Test zum root-Logger hinzugefügt)
         root = logging.getLogger()
         for h in list(root.handlers):

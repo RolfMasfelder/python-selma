@@ -121,15 +121,21 @@ echo "  → src  (Symbolischer Link): $PROJECT_DIR/src -> $SELMA_REPO/src"
 echo ""
 
 # ---------------------------------------------------------------------------
-# 5. selma.setup mit den echten Quell-Verzeichnissen aus dem Selma-Repo
-#    (Templates → .selma/workspace/, Skills → workspace/skills/,
-#     Images → <root>/images/; vorhandene Dateien werden nie überschrieben.)
+# 5. setup/-Verzeichnis ins Projekt kopieren (dokumentiert/individuell anpassbar,
+#    z. B. eigene Templates/Skills vor dem ersten Start) + selma.setup
+#    (liest Default `setup/templates|skills|images` im Projektverzeichnis;
+#     vorhandene Dateien im Ziel werden nie überschrieben.)
 # ---------------------------------------------------------------------------
+if [ -d "$SELMA_REPO/setup" ]; then
+    mkdir -p "$PROJECT_DIR/setup"
+    cp -rn "$SELMA_REPO/setup/." "$PROJECT_DIR"/setup/
+    echo "  → setup/ verzeichnis kopiert (Templates, Skills, Images) ins Projekt"
+else
+    echo "  → HINWEIS: $SELMA_REPO/setup nicht gefunden — setup/ im Projekt fehlt!"
+fi
+
 echo "=== Selma-Setup ==="
-( cd "$PROJECT_DIR" && "$PROJECT_DIR/venv/bin/python" -m selma.setup \
-    --templates "$SELMA_REPO/setup/templates" \
-    --skills "$SELMA_REPO/setup/skills" \
-    --images "$SELMA_REPO/setup/images" )
+( cd "$PROJECT_DIR" && "$PROJECT_DIR/venv/bin/python" -m selma.setup )
 echo ""
 
 # ---------------------------------------------------------------------------

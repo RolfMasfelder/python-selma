@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -216,24 +215,21 @@ _registry: list = [TelegramChannel(), WebChatChannel()]
 async def run_gateway():
     tracing_setup(endpoint="http://localhost:4317")
 
-    # App-owned FileHandler: the process itself persists its log, so start.sh /
-    # restart_gateway.sh no longer need to redirect stdout/stderr to a file.
+    # Console-only logging: stdout/stderr is redirected to gateway.log by the
+    # process manager (see start.sh / restart_gateway.sh, `>> gateway.log 2>&1`).
+    # An in-app FileHandler would write the same records a SECOND time into the
+    # same file (every log line doubled), so the app must not open it itself.
     # Handlers are added directly (not via basicConfig): tracing_setup() already
     # attached an OTel handler to the root logger, and basicConfig() is a no-op
     # once handlers exist — using force=True there would silently drop the OTel
     # handler again and break Phoenix log export.
-    log_file = Path("gateway.log")
     formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
-    file_handler.setFormatter(formatter)
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
 
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     root.addHandler(console_handler)
-    root.addHandler(file_handler)
-    logging.info("Gateway logging to %s", log_file.resolve())
 
     tasks = [ch.start(config) for ch in _registry if ch.is_enabled(config)]
     try:
