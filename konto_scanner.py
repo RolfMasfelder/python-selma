@@ -19,7 +19,6 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -45,9 +44,10 @@ class Tx:
 
     date: str  # TT.MM.JJJJ
     first: str  # erstes Wort nach dem Datum (z. B. „SEPA-Basis-LS")
-    detail: str  # Detail-Zeilen der Buchung
     betrag: Decimal  # Vorzeichen: negativ = Auszahlung
-    page: int
+    detail: str = ""  # gleiche Zeile wie Datum+Betrug (Buchungsart-Zeile)
+    note: str = ""  # Erläuterung: Zeile(n) direkt nach der Buchung (Empfänger/Aussteller etc.)
+    page: int = 0
 
 
 @dataclass
@@ -118,11 +118,18 @@ def _header(pdf) -> tuple[str | None, str | None, str | None]:
     for pg in pdf.pages[:2]:
         text = pg.extract_text() or ""
         if iban is None:
-            m = re.search(r"([A-Z]{2}\d{2}(?:[\dA-Z]{4}){4,5})", text.replace(" ", ""))
+            # IBAN = Ländercode + 2 Prüfziffern + 16–30 alphanumerische
+            # Zeichen, in 4er-Gruppen geschrieben, aber das LETZTE Segment
+            # kann kürzer sein (DE hier: 5765 0010 0198 4011 92 → 18 Ziffern,
+            # letztes Segment nur 2). Deshalb zeichenweise: optionales
+            # Trennungsleerzeichen vor JEDEM Zeichen. Bisherige 4er-Gruppen-
+            # Regex ({4,5}-Repetition) stoppte am letzten 2er-Segment und
+            # verlor die „92" am Ende.
+            m = re.search(r"([A-Z]{2}\d{2}(?: ?[0-9A-Z]){16,30})(?![0-9A-Z])", text)
             if m:
-                iban = m.group(0)
+                iban = re.sub(r"[^0-9A-Z]", "", m.group(1))
         if acct is None:
-            m = re.search(r"[A-Z]{2,4}-?\s?(?:Giro|Spar)\s*([A-Z0-9]{4,12})\s*,", text)
+            m = re.search(r"[A-Z]{2,4}-?\s?(?:Giro|Spar)[A-Za-z ]*?(\d{4,12})[,\s]", text)
             if m:
                 acct = m.group(1)
         if bank is None:
@@ -172,6 +179,33 @@ def _last_saldo(pdf) -> tuple[Decimal | None, str | None]:
     return None, None
 
 
+def _is_note_row(row: list) -> bool:
+    """Folgt eine Zeile auf eine Transaktion UND ist Erläuterung
+    (Empfänger/Aussteller/Datum/Uhr …) statt Transaktion/Saldo/Abschluss?"""
+    if len(row) < 2:
+        return False
+    first = row[0]
+    if first["x0"] <= X_LEFT and DATE_RE.match(first["text"]):
+        return False  # nächste Transaktion
+    if (
+        len(row) >= 3
+        and first["x0"] <= X_DATE_DIGIT
+        and first["text"].isdigit()
+        and row[1]["x0"] <= X_LEFT
+        and DATE_PART_RE.match(row[1]["text"])
+    ):
+        return False  # nächste Transaktion (Abspalter)
+    full = " ".join(w["text"] for w in row)
+    for bad in ("Kontostand", "Rechnungsabschluss", "Übertrag", "Sparkasse", "Vorstand"):
+        if bad in full:
+            return False
+    # Anmerkung: frühere "Betrag rechts" -Ausscheidung entfällt — Notizen
+    # enthalten oft Beträge (z. B. "3098011.5 … 9,89" in Vertrags-/
+    # Referenznummern); Transaktionen/Saldi sind bereits oben per Datum
+    # bzw. "Kontostand" & Co. ausgeschlossen.
+    return True
+
+
 def extract_file(path: Path) -> FileResult:
     """Eine Auszugs-Datei einlesen → FileResult (niemals werfen)."""
     res = FileResult(file=path)
@@ -197,10 +231,23 @@ def extract_file(path: Path) -> FileResult:
             res.bank, res.account, res.iban = _header(pdf)
             res.saldo_start, res.saldo_start_dt = _first_saldo(pdf)
 
+            last_tx: Tx | None = None
+            note_mode = False
             for pi, page in enumerate(pdf.pages):
-                for _top, row in _rows(page):
+                rows = _rows(page)
+                for _top, row in rows:
                     if len(row) < 2:
                         continue
+                    # Erläuterung ZU einer Buchung = ALLE Zeilen direkt nach
+                    # der Buchung, bis die nächste Transaktion/Saldo-/
+                    # Abschluss-/Fußzeile kommt (meist 2 Zeilen: Empfänger +
+                    # Verwendungszweck, dann Rechnungskonten + Gläubiger-ID).
+                    if note_mode and _is_note_row(row):
+                        txt = re.sub(r"\s+", " ", " ".join(w["text"] for w in row)).strip()
+                        if txt:
+                            last_tx.note = (last_tx.note + "  " + txt).strip()
+                        continue
+                    note_mode = False
                     first = row[0]
                     # Transaktionszeile: links das Datum — entweder
                     # ('21.04.2026SEPA-Basis-LS') oder mit abgesplitterter
@@ -234,7 +281,9 @@ def extract_file(path: Path) -> FileResult:
                     detail_words = [w["text"] for w in rest if not (AMT_RE.match(w["text"]) and w["x0"] > X_AMT_MIN)]
                     detail = re.sub(r"\s+", " ", " ".join(detail_words)).strip()
                     first_word = date_rest or next(iter(detail_words), "")
-                    res.txs.append(Tx(date_iso, first_word, detail, b, pi + 1))
+                    last_tx = Tx(date=date_iso, first=first_word, betrag=b, detail=detail, page=pi + 1)
+                    res.txs.append(last_tx)
+                    note_mode = True
 
             res.saldo_end, res.saldo_end_dt = _last_saldo(pdf)
     except Exception as e:
@@ -276,9 +325,7 @@ def scan(dirs: list[Path]) -> list[FileResult]:
     """Gesamte Scanning-Runde: Dateisammlung + Einlesen + Sortierung."""
     files = collect_files(dirs)
     results = [extract_file(f) for f in files]
-    now = datetime.now().isoformat(timespec="seconds")
-    # (Zeitstempel wird nur für das Info-Blatt gebraucht)
     for r in results:
         r.txs.sort(key=lambda t: (t.page, t.date))
-    log.info("Gescannt: %s → %d Datei(en)", now, len(results))
+    log.info("Gescannt → %d Datei(en)", len(results))
     return results

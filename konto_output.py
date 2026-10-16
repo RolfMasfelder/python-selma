@@ -61,13 +61,21 @@ def write_ods(results: list[FileResult], out: Path) -> None:
     doc = OpenDocumentSpreadsheet()
 
     # --- Number-Style (korrektes Namespace! siehe Modul-Docstring) -----------
+    # Tausendertrennzeichen: number:grouping + grouping-separator (Rolf-Vorlage
+    # 2026-10-16 in konto_auszuege.ods, Stil "N4"; Probe /tmp/probe_grp.ods:
+    # Anzeige wird 5.000,00 in LibreOffice-Render — funktioniert, unlike
+    # frühere Annahme). csv-Export zeigt roh values (normal, Format ist
+    # Zellen-Property, nicht Dateiinhalt).
     numst = Element(qname=(NN, "number-style"), check_grammar=False)
     numst.setAttrNS(ST, "name", "amt_de")
     num = Element(qname=(NN, "number"), check_grammar=False)
     num.setAttrNS(NN, "value-type", "float")
     num.setAttrNS(NN, "decimal-places", "2")
     num.setAttrNS(NN, "min-decimal-places", "2")
-    num.setAttrNS(NN, "decimal-separator", ",")  # explicit; sonst kein Tausenderpunkt
+    num.setAttrNS(NN, "decimal-separator", ",")
+    num.setAttrNS(NN, "min-integer-digits", "1")
+    num.setAttrNS(NN, "grouping", "true")
+    num.setAttrNS(NN, "grouping-separator", ".")
     numst.addElement(num, check_grammar=False)
     doc.styles.addElement(numst, check_grammar=False)
 
@@ -97,11 +105,11 @@ def write_ods(results: list[FileResult], out: Path) -> None:
         return tr
 
     # --- Blatt 1: Buchungen ---------------------------------------------------
+    # Kontonummer/IBAN bewusst NICHT hier: in allen Zeilen identisch und auch
+    # im „Info"-Blatt — Rolf-Feedback 2026-10-16.
     t1 = Table(name="Buchungen")
-    t1.addElement(
-        make_header(["Datum", "Erklärung", "Detail", "Betrag EUR", "Soll", "Haben", "Kontonummer", "IBAN", "Quelle"])
-    )
-    amt_cols = {3, 4, 5}
+    t1.addElement(make_header(["Datum", "Erklärung", "Detail", "Erläuterung", "Betrag EUR", "Soll", "Haben", "Quelle"]))
+    amt_cols = {4, 5, 6}
     for r in (x for x in results if x.ok):
         for t in r.txs:
             b = t.betrag
@@ -111,11 +119,10 @@ def write_ods(results: list[FileResult], out: Path) -> None:
                     t.date,
                     t.first,
                     t.detail,
+                    t.note,
                     b,
                     (-b if b < 0 else None),
                     (b if b > 0 else None),
-                    r.account or "",
-                    r.iban or "",
                     r.file.name,
                 ]
             ):
@@ -206,8 +213,9 @@ def write_csv(results: list[FileResult], out: Path) -> None:
     """CSV (Semikulon, UTF-8-BOM) — Buchungen + Status-Block darunter."""
     with open(out, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f, delimiter=";", lineterminator="\n")
-        # --- Buchungen ---
-        w.writerow(["Datum", "Erklärung", "Detail", "Betrag EUR", "Soll", "Haben", "Kontonummer", "IBAN", "Quelle"])
+        # --- Buchungen (Kontonummer/IBAN weggelassen, siehe Blatt „Buchungen"
+        # im ODS oben — Rolf 2026-10-16) ---
+        w.writerow(["Datum", "Erklärung", "Detail", "Erläuterung", "Betrag EUR", "Soll", "Haben", "Quelle"])
         for r in (x for x in results if x.ok):
             for t in r.txs:
                 b = t.betrag
@@ -216,11 +224,10 @@ def write_csv(results: list[FileResult], out: Path) -> None:
                         t.date,
                         t.first,
                         t.detail,
+                        t.note,
                         f2(b),
                         f2(-b) if b < 0 else "",
                         f2(b) if b > 0 else "",
-                        r.account or "",
-                        r.iban or "",
                         r.file.name,
                     ]
                 )
