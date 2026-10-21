@@ -27,5 +27,6 @@ for _ in $(seq 1 10); do
 done
 
 echo "Starting gateway (log: $GATEWAY_LOG)..."
-python -m selma.gateway >> "$GATEWAY_LOG" 2>&1 &
+# selma-gateway = Entry-Point (pip install . im venv) — selbe Version wie MAIN.
+selma-gateway >> "$GATEWAY_LOG" 2>&1 &
 echo "Gateway started (PID $!)."

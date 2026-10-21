@@ -4,7 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "selma"
-version = "0.1.0"
+# 0.2.0 (2026-10-20): Paket wird installierbar (Console-Scripts
+# selma-gateway / -setup / -dashboard, [project.scripts]). Parallel-Projekte
+# nutzen von hier an einen ECHTEN venv + `pip install ~/workspace/selma`
+# (selma_venv_setup.sh) statt venv-Symlink + src/-Symlink — Versions-Pinning
+# statt "MAIN-Quellen direkt im Projekt".
+version = "0.2.0"
 description = "Selma agent gateway"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -29,6 +34,14 @@ dependencies = [
     "trafilatura",
     "uvicorn[standard]",
 ]
+
+# Console-Skripte: beim `pip install selma` erzeugen diese Einträge CLI-Befehle
+# im venv. Damit läuft selma überall über die INSTALLIERTE Version statt über
+# einen lokalen src/-Symlink — Parallel-Projekte pinnen so eine Version.
+[project.scripts]
+selma-gateway = "selma.gateway:main"
+selma-setup = "selma.setup:main"
+selma-dashboard = "selma.dashboard_cli:main"
 
 [project.optional-dependencies]
 dev = [

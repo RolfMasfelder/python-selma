@@ -211,6 +211,15 @@ def handle_images(images_src: Path, images_dst: Path):
         print(f"[green]✔[/green] {copied} image(s) deployed to images/")
 
 
+def main(base_dir: str = ".") -> None:
+    """Entry point for the `selma-setup` console script (pyproject [project.scripts]).
+
+    Initialisiert die .selma/-Struktur + kopiert Templates/Skills/Images.
+    `base_dir` wird relativ zum aktuellen Verzeichnis aufgelöst — wer also
+    `selma-setup` im Projektroot ausführt, bekommt dort die Struktur.
+    """
+    setup(base_dir)
+
+
 if __name__ == "__main__":
-    # Run the setup in the current directory by default
-    setup()
+    main()

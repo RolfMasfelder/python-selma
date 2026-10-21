@@ -12,11 +12,17 @@
 #     [gateway_port]  optional, Default 8001  (8000/6006/4317/8501/11434 reserviert)
 #
 # Das Script erzeugt (bewusst OHNE Start — start.sh bleibt zur Prüfung):
-#   <project>/venv         Symbolischer Link -> selma venv   (SELMA_VENV)
+#   <project>/venv         ECHTER venv (python3 -m venv) mit `pip install ~/workspace/selma`
+#                          → PAKET-EKOPIE (Wheel) in site-packages.
+#                          KEIN Symlink auf den MAIN-venv, KEIN src/-Symlink:
+#                          das Projekt ist auf die INSTALLIERTE selma-Version gepinnt
+#                          und MAIN kann unabhängig weiterentwickelt werden.
 #   <project>/.selma/      selma.json (WebChat auf gateway_port, Modell vom
 #                          Hauptprojekt uebernommen), workspace-Templates, skills, images/
 #   <project>/start.sh     KOPIE der kanonischen Repo-Version (MAIN + Projekte identisch)
 #   ~/workspace/SELMA_REGISTRY.md  (SELMA_REG) — zentrales Register
+#
+# Selma-Upgrade eines Projekts:  ./selma-upgrade.sh  (force-reinstalls aus dem MAIN-Repo)
 #
 # Phoenix-Lifecycle (gemeinsame Instanz):
 #   * Start: Phoenix erreichbar -> fertig. Sonst starten (mit Kennzeichen
@@ -43,6 +49,10 @@ fi
 
 PROJECT_NAME="$1"
 GATEWAY_PORT="${2:-8001}"
+# SELMA_VENV bleibt als Variable (start.sh liest venv/ im Projekt) —
+# ab v7 ist das eine ECHTER venv im Projekt (kein Symlink mehr);
+# SELMA_VENV wird nur noch zur Sanity-Check der VORAUSSETZUNGEN genutzt
+# (MAIN-Venv muss selma enthalten, damit das Wheel-Rezept gültig ist).
 SELMA_VENV="${SELMA_VENV:-$HOME/workspace/selma/venv}"
 SELMA_REPO="${SELMA_REPO:-$HOME/workspace/selma}"
 SELMA_REG="${SELMA_REG:-$HOME/workspace/SELMA_REGISTRY.md}"
@@ -71,13 +81,13 @@ done
 echo "=== Abhängigkeiten prüfen ==="
 command -v curl >/dev/null 2>&1 || { echo "Fehler: curl fehlt."; exit 1; }
 [ -x "$SELMA_VENV/bin/python" ] || {
-    echo "Fehler: Selma venv nicht gefunden unter: $SELMA_VENV"
-    echo "  -> SELMA_VENV auf den echten Pfad setzen."
+    echo "Fehler: MAIN-Selma-venv nicht gefunden unter: $SELMA_VENV"
+    echo "  -> MAIN-Repo einmal aufsetzen: cd $SELMA_REPO && python3 -m venv venv && venv/bin/pip install -e .[dev]"
     exit 1
 }
 "$SELMA_VENV/bin/python" -c "import selma" >/dev/null 2>&1 || {
-    echo "Fehler: 'selma' ist im venv nicht importierbar (fehlendes Editable-Install?)."
-    echo "  -> Im venv: python -m pip install --editable $SELMA_REPO"
+    echo "Fehler: 'selma' im MAIN-venv nicht importierbar."
+    echo "  -> Im MAIN-Repo: venv/bin/pip install -e ."
     exit 1
 }
 [ -d "$SELMA_REPO/setup/templates" ] || { echo "Fehler: Templates fehlen: $SELMA_REPO/setup/templates"; exit 1; }
@@ -85,7 +95,7 @@ command -v curl >/dev/null 2>&1 || { echo "Fehler: curl fehlt."; exit 1; }
 
 echo "  Projekt:          $PROJECT_NAME"
 echo "  Ziel:             $PROJECT_DIR"
-echo "  venv (gespiegelt): $SELMA_VENV"
+echo "  venv:             ECHTER venv im Projekt (pip install $SELMA_REPO)"
 echo "  Selma-Repo:       $SELMA_REPO"
 echo "  Gateway-Port:     :$GATEWAY_PORT"
 echo "  Streamlit:        :8501 (via STREAMLIT_PORT ueberschreibbar)"
@@ -108,16 +118,19 @@ if [ -f "$SELMA_REG" ] && grep -qE "^### ${PROJECT_NAME}\s*\(" "$SELMA_REG"; the
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Verzeichnis + venv-Link + src-Symlink (geteilter Code, kein Duplizieren)
+# 4. Verzeichnis + ECHTER venv (selma via pip install des MAIN-Repos)
+#    v7 (2026-10-20): statt venv-Symlink + src-Symlink jetzt:
+#      * python3 -m venv venv          (echte, unabhängige Umgebung)
+#      * pip install ~/workspace/selma (Wheel-Kopie → Versions-Pinning)
+#    → MAIN weiterentwickelt, Projekt bleibt bei der installierten Version.
+#      Upgrade des Projekts = bewusst: venv/bin/pip install --upgrade ~/workspace/selma
 # ---------------------------------------------------------------------------
 [ -d "$SELMA_REPO/src" ] || { echo "Fehler: $SELMA_REPO/src fehlt (SELMA_REPO falsch?)"; exit 1; }
+[ -f "$SELMA_REPO/selma_venv_setup.sh" ] || { echo "Fehler: $SELMA_REPO/selma_venv_setup.sh fehlt (MAIN-Repo-Update nötig?)"; exit 1; }
 mkdir -p "$PROJECT_PARENT_DIR"
 mkdir "$PROJECT_DIR"
-ln -s "$SELMA_VENV" "$PROJECT_DIR/venv"
-ln -s "$SELMA_REPO/src" "$PROJECT_DIR/src"
-echo "  → Projektverzeichnis:    $PROJECT_DIR"
-echo "  → venv (Symbolischer Link): $PROJECT_DIR/venv -> $SELMA_VENV"
-echo "  → src  (Symbolischer Link): $PROJECT_DIR/src -> $SELMA_REPO/src"
+echo "=== venv anlegen (ECHTER venv, kein Symlink) ==="
+bash "$SELMA_REPO/selma_venv_setup.sh" "$PROJECT_DIR" "$SELMA_REPO"
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -197,7 +210,7 @@ fi
     echo "| Feld         | Wert                                          |"
     echo "|------------|-----------------------------------------------|"
     echo "| Root         | ${PROJECT_DIR} |"
-    echo "| venv         | ${SELMA_VENV} (Link: ${PROJECT_DIR}/venv) |"
+    echo "| venv         | ECHTER venv (selma aus ${SELMA_REPO})                        |"
     echo "| Gateway      | 127.0.0.1:${GATEWAY_PORT}                          |"
     echo "| Streamlit    | 127.0.0.1:8501 (STREAMLIT_PORT)                   |"
     echo "| Phoenix      | gemeinsam :6006 (OTLP :4317)                       |"

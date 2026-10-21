@@ -240,8 +240,18 @@ async def run_gateway():
         await shutdown_background_tasks()
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Entry point for the `selma-gateway` console script (pyproject [project.scripts]).
+
+    Same behaviour as the legacy `python -m selma.gateway` block below — the
+    `main()` wrapper is what makes the package installable as a normal wheel
+    with an executable on PATH.
+    """
     try:
         asyncio.run(run_gateway())
     except KeyboardInterrupt:
         print("\n Gateway shutting down...")
+
+
+if __name__ == "__main__":
+    main()

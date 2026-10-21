@@ -131,11 +131,17 @@ echo ""
 ensure_phoenix
 echo ""
 echo "  → Gateway starten (log: $GATEWAY_LOG)…"
-python -m selma.gateway >> "$GATEWAY_LOG" 2>&1 &
+# selma-gateway = Entry-Point aus pyproject [project.scripts] (pip install . im venv).
+# Läuft gegen die INSTALLIERTE Version im lokalen venv — kein src/-Symlink nötig.
+selma-gateway >> "$GATEWAY_LOG" 2>&1 &
 GATEWAY_PID=$!
 echo "    Gateway PID: $GATEWAY_PID"
-echo "  → Streamlit starten (PORT :$STREAMLIT_PORT, log: $STREAMLIT_LOG)…"
-streamlit run src/selma/dashboard.py --server.port="$STREAMLIT_PORT" --server.address=127.0.0.1 --server.headless=true gateway-url="http://127.0.0.1:${GATEWAY_PORT}/webchat/stream" \
+echo "  → Streamlit-Dashboard starten (PORT :$STREAMLIT_PORT, log: $STREAMLIT_LOG)…"
+# selma-dashboard findet die dashboard.py im installierten selma-Paket —
+# löst das alte `streamlit run src/selma/dashboard.py` ab (kein Dateipfad mehr).
+# WICHTIG (Streamlit-Origin, MEMORY #19): Dashboard später NUR über
+# http://localhost:$STREAMLIT_PORT aufrufen (nicht 127.0.0.1) → 1 Origin.
+selma-dashboard --server.port="$STREAMLIT_PORT" --server.address=127.0.0.1 --server.headless=true gateway-url="http://127.0.0.1:${GATEWAY_PORT}/webchat/stream" \
     >> "$STREAMLIT_LOG" 2>&1 &
 STREAMLIT_PID=$!
 echo "    Streamlit PID: $STREAMLIT_PID"
