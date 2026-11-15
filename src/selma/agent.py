@@ -178,6 +178,13 @@ class Agent:
                 messages = self._options.convert_to_llm(self._state.messages)
                 openai_messages = self._to_openai_messages(messages)
 
+                # Qwen-Templates (qwen3.5/3.6/3.8, verifiziert via echtes HF-Template + Live-Repro 2026-11-14)
+                # werfen "No user query found in messages." (Ollama HTTP 500), wenn die Liste
+                # KEEINEN einzigen echten user-Eintrag enthält (z. B. system + assistant(tool_calls)
+                # + tool — passiert, sobald Compaction/convert_to_llm den initialen user-Turn entfernt).
+                # Guard läuft JEDER completions.create-Aufruf vorher — niemals ohne Content losfahren.
+                openai_messages = self._ensure_user_query(openai_messages, messages)
+
                 logger.info("Turn %d | model=%s messages=%d", turn, self._state.model, len(openai_messages))
                 self._emit("turn_start")
 
@@ -343,6 +350,65 @@ class Agent:
             self._emit("tool_end", tc)
 
     # ── OpenAI Format Helpers ────────────────────────────────
+
+    @staticmethod
+    def _ensure_user_query(
+        openai_messages: list[ChatCompletionMessageParam], source: list[AgentMessage]
+    ) -> list[ChatCompletionMessageParam]:
+        """
+        Tail/content-Guarantee vor JEDER completions.create (Qwen-Family, 2026-11-14):
+
+        qwen3.5/3.6/3.8-Chat-Templates throwen "No user query found in messages."
+        (Ollama → HTTP 500), wenn die Message-Liste keinen einzigen user-Eintrag hat
+        (z. B. [system, assistant(tool_calls), tool] — Zustand nach Compaction oder
+        wenn convert_to_llm den initialen user-Turn herausfiltert).
+
+        Gibt die Liste unverändert zurück, wenn ≥1 Eintrag mit role="user" + nicht
+        leerem Text-Content existiert. Sonst wird ein synthetischer user-Eintrag
+        ("(continue from the tool results above)") direkt vor dem ERSTEN
+        assistant-Eintrag eingefügt (Fallback: ans Ende) — das hält tool_calls/tool
+        Pairing konsistent (kein blindes Tail-Append) und befriedigt den
+        Template-Guard ohne die Semantik der übrigen Liste zu ändern.
+        """
+        for msg in openai_messages:
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                return openai_messages
+            if isinstance(content, list):
+                # List-Content-Form: mind. ein text-Item mit nicht-leerem Text?
+                for item in content:
+                    if (
+                        isinstance(item, dict)
+                        and item.get("type", "text") == "text"
+                        and str(item.get("text") or "").strip()
+                    ):
+                        return openai_messages
+        # Kein einziger user-Eintrag → synthetischen Einführen, aber NICHT
+        # einfach ans Ende appenden (wäre inkonsistent mit tool_call_Pairing);
+        # direkt vor den tool-call/assistant-tool_calls-Block stellen.
+        # Stabilster Ansatz: vor dem ERSTEN assistant-Eintrag einfügen
+        # ("User fragte → Assistant wollte Tool → Tool lief → Assistant antwortet"),
+        # sonst ganz ans Ende.
+        result: list[ChatCompletionMessageParam] = list(openai_messages)
+        insert_idx = next(
+            (i for i, msg in enumerate(openai_messages) if msg.get("role") == "assistant"),
+            len(result),
+        )
+        placeholder_msg: ChatCompletionMessageParam = {
+            "role": "user",
+            "content": "(continue from the tool results above)",
+        }
+        result.insert(insert_idx, placeholder_msg)
+        logger.warning(
+            "agent._ensure_user_query: Keine user-Message gefunden (%s) → placeholder "
+            "an Insert-Index %d eingefügt (source messages=%d)",
+            [m.get("role") for m in openai_messages],
+            insert_idx,
+            len(source),
+        )
+        return result
 
     def _to_openai_tools(self) -> list[ChatCompletionToolParam]:
         """Convert AgentTool list to the OpenAI function-calling schema."""

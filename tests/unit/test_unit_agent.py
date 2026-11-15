@@ -27,6 +27,9 @@ from selma.agent import (
     AgentOptions,
     AgentState,
     AgentTool,
+    AssistantMessage,
+    ToolCallRequest,
+    ToolResultMessage,
     ToolSchema,
     UserMessage,
 )
@@ -455,3 +458,111 @@ class TestFailurePaths:
             "message_end",
             "agent_end",
         ]
+
+
+class TestEnsureUserQuery:
+    """Regression: Qwen-Template-Guard (2026-11-14).
+
+    Ollama (echtes HF-Template + Live-Repro 2026-11-14) wirft
+    "No user query found in messages." (HTTP 500), wenn die Sendungsliste
+    keinen einzigen user-Eintrag hat — z. B. [system, assistant(tool_calls),
+    tool] nach Compaction. _ensure_user_query läuft seitdem vor JEDER
+    completions.create und garantiert: mindestens 1 user-Eintrag mit
+    nicht-leerem Text, sonst synthetischer Placeholder (vor erstem
+    assistant, sonst ans Ende — NICHT blindes Tail-Append).
+    """
+
+    PLACEHOLDER = "(continue from the tool results above)"
+
+    def test_passthrough_when_user_present(self):
+        msgs = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hallo"},
+            {"role": "assistant", "content": ""},
+        ]
+        out = Agent._ensure_user_query(msgs, [1])
+        assert out is msgs  # unverändert (Identität), kein Copy
+
+    def test_list_content_user_counts_as_present(self):
+        msgs = [
+            {"role": "assistant", "content": ""},
+            {"role": "user", "content": [{"type": "text", "text": "hey"}]},
+        ]
+        assert Agent._ensure_user_query(msgs, [1]) is msgs
+
+    def test_blank_user_does_not_count_and_placeholder_inserted(self):
+        msgs = [
+            {"role": "assistant", "content": ""},
+            {"role": "user", "content": "   "},
+            {"role": "tool", "tool_call_id": "x", "content": "y"},
+        ]
+        out = Agent._ensure_user_query(msgs, [1])
+        assert out is not msgs
+        # vor dem ERSTEN assistant
+        assert out[0] == {"role": "user", "content": self.PLACEHOLDER}
+        assert [m["role"] for m in out] == ["user", "assistant", "user", "tool"]
+
+    def test_case_h_no_user_at_all(self):
+        # Exakte Fehlschlag-Form 2026-11-14: system + assistant(tool_calls) + tool
+        msgs = [
+            {"role": "system", "content": "Sys"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "web_fetch", "arguments": "{}"}}],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "Error: no content retrieved"},
+        ]
+        out = Agent._ensure_user_query(msgs, [1, 2, 3])
+        assert len(out) == len(msgs) + 1
+        assert out[0] == {"role": "system", "content": "Sys"}
+        assert out[1] == {"role": "user", "content": self.PLACEHOLDER}
+        assert out[2] is msgs[1]  # Original-Assistant-Entry unverändert
+        assert [m["role"] for m in out] == ["system", "user", "assistant", "tool"]
+
+    def test_no_assistant_appends_at_end(self):
+        msgs = [{"role": "tool", "tool_call_id": "x", "content": "y"}]
+        out = Agent._ensure_user_query(msgs, [1])
+        assert [m["role"] for m in out] == ["tool", "user"]
+        assert out[-1] == {"role": "user", "content": self.PLACEHOLDER}
+
+    @pytest.fixture(autouse=True)
+    def _isolated_state_dir(self, tmp_path, monkeypatch):
+        """Alle selma-State-Isolation (siehe MEMORY.md Stolpersteine)."""
+        state = tmp_path / "state"
+        (tmp_path / ".selma").mkdir(exist_ok=True)
+        monkeypatch.setenv("SELMA_STATE_DIR", str(state))
+        yield state
+
+    def test_create_call_never_sends_without_user(self):
+        """End-to-End über den Loop: convert_to_llm filtert den user-Turn weg
+        (Case-H-Zustand aus production) → completions.create bekommt TROTZDEM
+        einen user-Eintrag, und der Loop läuft zu Ende (kein 500/Agent-Abbruch)."""
+        agent, calls = _make_agent([[_chunk(content="fertig")]])
+
+        def dropping_user_hook(msgs):
+            # Simuliert Compaction/convert_to_llm: initialer user-Turn weg,
+            # übrig bleibt assistant(tool_calls) + tool — exakt die
+            # production-Fehlschlagform ohne user-Eintrag.
+            out = [
+                AssistantMessage(
+                    content=None,
+                    tool_calls=[ToolCallRequest(id="c1", name="web_fetch", arguments={})],
+                ),
+                ToolResultMessage(tool_call_id="c1", content="Error: no content retrieved"),
+            ]
+            assert [m.role for m in msgs] == ["user"]
+            return out
+
+        # Hook nachträglich injizieren (Options-Modell ist frozen-ish? → direkt Field)
+        agent._options.convert_to_llm = dropping_user_hook
+
+        _run(_run_prompt(agent))
+
+        assert len(calls) == 1
+        sent = calls[0]["messages"]
+        assert any(m.get("role") == "user" for m in sent), "create() without user-Eintrag!"
+        placeholder = [m for m in sent if m.get("role") == "user"]
+        assert placeholder, "user-Eintrag gefunden aber leer?"
+        assert any(str(m.get("content") or "").strip() for m in placeholder)
+        assert agent.state.is_streaming is False
