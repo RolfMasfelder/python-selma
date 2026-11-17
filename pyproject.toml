@@ -9,7 +9,9 @@ name = "selma"
 # nutzen von hier an einen ECHTEN venv + `pip install ~/workspace/selma`
 # (selma_venv_setup.sh) statt venv-Symlink + src/-Symlink — Versions-Pinning
 # statt "MAIN-Quellen direkt im Projekt".
-version = "0.2.0"
+# 0.2.1 (2026-11-15): Qwen-Template-Guard (fix: ensure user query vor jeder
+# completions.create) + my_tools.py-Aufteilung (my_tools_common/exec/fs/search).
+version = "0.2.1"
 description = "Selma agent gateway"
 readme = "README.md"
 requires-python = ">=3.13"
