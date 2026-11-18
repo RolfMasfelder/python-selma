@@ -138,23 +138,27 @@ Vorgaben (wie bei den Coverage-Runden):
 
 ## P3 — Größere / strukturelle Refactors (mehrerige Runden)
 
-### 13. `runtime.py` (1134 Zeilen, 99 % Coverage) — God-Module-Kandidat
+### 13. `runtime.py` (1285 Zeilen) — God-Module-Refactor ✅ erledigt 2026-11-18
 
-- **Smell:** Datei ist das "Zentralwerk" mit 10+ Funktionen > 40 Zeilen (`agent_command`, `run_embedded_attempt`, `detect_attempt_error`, `execute_prompt`, …).
-- **Fix (optional, erst wenn P1-P2 rum sind):** Aufspaltung in `runtime/session.py`, `runtime/attempt.py`, `runtime/error_detect.py`; `runtime.py` als Fassade/Re-Export.
-- **Risk:** **hoch** — viele Import-Stellen, `selma.runtime` in sys.modules-Mocks (Stolperstein #6).
-- **Nur mit Rolf-Grünlicht**, wenn nach P1-P2 das Gefühl besteht "es wird dicker".
+- **Fix (umgesetzt):** `runtime.py` wurde zum Package `runtime/` mit expliziter Fassade `__init__.py`; L0-Modelle/Lifecycle in `common.py`, Orchestrierung inkl. `memory_flush` in `command.py`, Retry-/Attempt-Ausführung in `attempt.py`. `memory_flush` wird aus `attempt.py` nur lokal importiert, damit beim Package-Import kein Zyklus entsteht. `memory_get`/`memory_search` und `memory_index` bleiben in ihren bisherigen Zuständigkeitsmodulen.
+- **Consumer-API:** bisherige `from selma.runtime import …`-Imports bleiben über die Fassade verfügbar; Layer-Tests patchen Abhängigkeiten über deren definierende Module.
+- **Verifikation:** 801 Unit-/Integrationstests bestanden; Runtime-Fokustests 88 bestanden; `ruff check`, `ruff format --check` und `mypy src/selma` grün.
+- **Details:** [REFACTOR_RUNTIME_PLAN.md](./REFACTOR_RUNTIME_PLAN.md). Änderungen sind noch nicht committed; Commit-Verweis nach dem Commit ergänzen.
 
-### 14. ~~Data-Cluster: `session_key + session_id`-Paar wird durch 5+ Stellen weitergereicht~~ ✅ **erledigt 2026-09-23**
+### 14. **P3-Status (Bestandsaufnahme 2026-11-15, Rolf-Frage):**
+
+- **P3 #15 = FERTIG** (Commit `078d218`, oben; Facade + 4 Split-Module, Suite grün).
+- **P3 #13 = AUFGEFADEN/ABGEBROCHEN:** Kein `src/selma/runtime/`-Paket existiert; `runtime.py` ist eine einzelne Datei (heute **1285 Zeilen** — damals 1134). Einzige späte Changes: P2#9 `2d4fc60`, P2#10 `e39c825`, P3#14 `bcdc5eb`, Pfade `234b889`. **Die eigentliche Aufspaltung in `runtime/session.py` + `runtime/attempt.py` + `runtime/error_detect.py` wurde nie umgesetzt** (vermutlich Rolf-Timeout). Status: offen, nur mit Rolf-Auftrag — Risk bleibt **hoch** (viele Import-Stellen, `selma.runtime` in `sys.modules`-Mocks).
 
 - **Smell:** Data clumps (siehe `agent_command`, `resolve_session`, `reset_session`, `agent_runtime._execute`).
 - **Fix (umgesetzt):** `SessionRef(session_key, session_id)`-Frozen-Dataclass in `session_store.py` (modul-Level); `resolve_session(store, ref, config)` + `runtime.get_session(ref, config, cwd)` nehmen jetzt ein `SessionRef` statt zwei optionaler Parallel-Parameter. `CommandContext.session_ref: SessionRef` (Pydantic-Feld, no-default-Gruppe). **Öffentliche API stabil:** `run_agent`/`agent_command` behalten `session_key=`/`session_id=`-KWArgs; `_prepare_command` baut das Ref. `ctx.session_key`-Reader in command_manager/agent_runtime/gateway sind `NormalizedTurnInput`-Objekte → nicht betroffen.
 - **Abnahme (2026-09-23):** Suite **731 passed**, ruff + `ruff format` grün, `mypy src/selma` 0/30, Gesamt-Coverage **99 %** (`session_store.py` 98 % → Ziel ≥ zuvor), `find ~/.selma -type f` → 0, A/B-Dual-Load (git `HEAD`: vs. Worktree, St-25 **kein Stash**, St-30 `sys.modules` vor `exec`) → 4/4 PASS (key/id/Validierung, public-API-Pfad).
 
-### 15. `my_tools.py` 874 Zeilen — Modul-Struktur
+### 15. ~~`my_tools.py` 874 Zeilen — Modul-Struktur~~ ✅ **erledigt 2026-11-07** (Commit `078d218` "mytools refoactoring")
 
 - **Smell:** 8 separate `make_*_tool`-Werkzeuge + Helpers in einer Datei; nicht unbedingt ein Problem, aber bei #6 + #11 (tools.py-Browser) wächst der Code.
-- **Fix (optional):** `my_tools/grep.py`, `my_tools/exec.py`, `my_tools/find.py` … — **NUR wenn #6 + #11 tatsächlich unhandlich werden**.
+- **Fix (umgesetzt, Facade-Muster statt Subpaketen-Verzeichnis):** `my_tools.py` = schlanke Fassade (Re-Exports + die 3 Builder `create_coding_tools`/`create_read_only_tools`/`create_all_tools`); Werkzeug-Logik in `my_tools_common.py` (geteilte Basis/Helper), `my_tools_fs.py` (read/edit/write), `my_tools_exec.py` (exec), `my_tools_search.py` (grep/find/ls). **Consumer-Importe bleiben stabil** (`from selma.my_tools import …` — tools.py, agent_session.py, Tests) — `__module__` verifiziert, dass die Symbole in den Split-Modulen leben.
+- **Abnahme (verifiziert 2026-11-15):** Full-Suite **799 passed**, ruff check+format grün, `mypy src/selma` 0/36, `find ~/.selma -type f` → 0.
 
 ### 16. `dashboard.py settings_dialog()` — 56 Zeilen, `except Exception` (L101) ✅ **erledigt 2026-09-24**
 

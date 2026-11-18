@@ -1,6 +1,6 @@
 # ============================================================
 # test_unit_runtime.py
-# Deckt src/selma/runtime.py ab:
+# Deckt die Runtime-Package-Module ab:
 #   Layer 1:  _BlockChunker, Lifecycle-Events, _resolve_skills_snapshot,
 #             get_session, detect_bootstrap_mode, agent_command
 #   Layer 2:  pick_fallback_thinking_level, handle_aborted,
@@ -9,7 +9,7 @@
 #   Layer 3:  detect_attempt_error, subscribe_output_collector,
 #             execute_prompt, build_attempt_result, run_embedded_attempt
 # Stil: sync-Tests + run(coro)-Helper (frische Event-Loops),
-# Fakes via monkeypatch auf runtimes Modulattribute (kein pytest-asyncio).
+# Fakes werden auf dem Modul gepatcht, das das jeweilige Symbol definiert.
 # ============================================================
 
 from __future__ import annotations
@@ -23,6 +23,8 @@ import pytest
 from selma import runtime as rt
 from selma.agent import AgentEvent, AgentTool, ToolCallRequest, ToolSchema
 from selma.config import SelmaConfig
+from selma.runtime import attempt as attempt_rt
+from selma.runtime import command as command_rt
 from selma.session_store import SessionRecord, SessionRef, SessionStore, SkillsSnapshot
 
 
@@ -247,8 +249,8 @@ class TestResolveSkillsSnapshot:
     def test_new_session_builds_snapshot(self, monkeypatch):
         rec = SessionRecord(session_id="id1", session_key="k1")
         built = SkillsSnapshot(version="v2", skill_names=["a"], snapshot_text="txt")
-        monkeypatch.setattr(rt, "get_skills_snapshot_version", lambda _ws: "v2")
-        monkeypatch.setattr(rt, "build_skill_snapshot", lambda ws, ver: built)
+        monkeypatch.setattr(command_rt, "get_skills_snapshot_version", lambda _ws: "v2")
+        monkeypatch.setattr(command_rt, "build_skill_snapshot", lambda ws, ver: built)
         out = rt._resolve_skills_snapshot(rec, "/ws", is_new_session=True)
         assert out is built
         assert rec.skills_snapshot is built
@@ -260,8 +262,8 @@ class TestResolveSkillsSnapshot:
             skills_snapshot=SkillsSnapshot(version="v1", skill_names=["old"]),
         )
         built = SkillsSnapshot(version="v2", skill_names=["new"])
-        monkeypatch.setattr(rt, "get_skills_snapshot_version", lambda _ws: "v2")
-        monkeypatch.setattr(rt, "build_skill_snapshot", lambda ws, ver: built)
+        monkeypatch.setattr(command_rt, "get_skills_snapshot_version", lambda _ws: "v2")
+        monkeypatch.setattr(command_rt, "build_skill_snapshot", lambda ws, ver: built)
         out = rt._resolve_skills_snapshot(rec, "/ws", is_new_session=False)
         assert out is built
         assert rec.skills_snapshot.version == "v2"
@@ -269,18 +271,18 @@ class TestResolveSkillsSnapshot:
     def test_missing_snapshot_rebuilds(self, monkeypatch):
         rec = SessionRecord(session_id="id1", session_key="k1", skills_snapshot=None)
         built = SkillsSnapshot(version="v1", skill_names=[])
-        monkeypatch.setattr(rt, "get_skills_snapshot_version", lambda _ws: "v1")
-        monkeypatch.setattr(rt, "build_skill_snapshot", lambda ws, ver: built)
+        monkeypatch.setattr(command_rt, "get_skills_snapshot_version", lambda _ws: "v1")
+        monkeypatch.setattr(command_rt, "build_skill_snapshot", lambda ws, ver: built)
         out = rt._resolve_skills_snapshot(rec, "/ws", is_new_session=False)
         assert out is built
 
     def test_fresh_snapshot_returns_existing(self, monkeypatch):
         existing = SkillsSnapshot(version="v1", skill_names=["a"])
         rec = SessionRecord(session_id="id1", session_key="k1", skills_snapshot=existing)
-        monkeypatch.setattr(rt, "get_skills_snapshot_version", lambda _ws: "v1")
+        monkeypatch.setattr(command_rt, "get_skills_snapshot_version", lambda _ws: "v1")
         build_calls: list[str] = []
         monkeypatch.setattr(
-            rt,
+            command_rt,
             "build_skill_snapshot",
             lambda ws, ver: build_calls.append(str(ver)),
         )
@@ -298,9 +300,9 @@ class TestGetSession:
         rec = SessionRecord(session_id="new1", session_key="fresh")
         cfg = SelmaConfig()
         seen: dict[str, Any] = {}
-        monkeypatch.setattr(rt, "load_session_store", lambda cwd: seen.update(load=cwd) or store)
-        monkeypatch.setattr(rt, "resolve_session", lambda s, ref, c: (rec, True))
-        monkeypatch.setattr(rt, "resolve_session_file", lambda r, cwd: f"/tmp/{r.session_id}.jsonl")
+        monkeypatch.setattr(command_rt, "load_session_store", lambda cwd: seen.update(load=cwd) or store)
+        monkeypatch.setattr(command_rt, "resolve_session", lambda s, ref, c: (rec, True))
+        monkeypatch.setattr(command_rt, "resolve_session_file", lambda r, cwd: f"/tmp/{r.session_id}.jsonl")
         out_store, out_rec, is_new, session_file = rt.get_session(SessionRef(session_key="fresh"), cfg, "/cwd")
         assert out_store is store
         assert is_new is True
@@ -311,10 +313,10 @@ class TestGetSession:
     def test_existing_fresh_session_kept(self, monkeypatch):
         store = self._fake_store()
         rec = SessionRecord(session_id="old1", session_key="keep")
-        monkeypatch.setattr(rt, "load_session_store", lambda cwd: store)
-        monkeypatch.setattr(rt, "resolve_session", lambda s, ref, c: (rec, False))
-        monkeypatch.setattr(rt, "is_session_fresh", lambda r, at_hour, idle_minutes: True)
-        monkeypatch.setattr(rt, "resolve_session_file", lambda r, cwd: "/tmp/x.jsonl")
+        monkeypatch.setattr(command_rt, "load_session_store", lambda cwd: store)
+        monkeypatch.setattr(command_rt, "resolve_session", lambda s, ref, c: (rec, False))
+        monkeypatch.setattr(command_rt, "is_session_fresh", lambda r, at_hour, idle_minutes: True)
+        monkeypatch.setattr(command_rt, "resolve_session_file", lambda r, cwd: "/tmp/x.jsonl")
         _s, out_rec, is_new, _f = rt.get_session(SessionRef(session_key="keep"), SelmaConfig(), "/cwd")
         assert out_rec is rec
         assert is_new is False
@@ -323,11 +325,11 @@ class TestGetSession:
         store = self._fake_store()
         old_rec = SessionRecord(session_id="old1", session_key="keep")
         new_rec = SessionRecord(session_id="new2", session_key="keep")
-        monkeypatch.setattr(rt, "load_session_store", lambda cwd: store)
-        monkeypatch.setattr(rt, "resolve_session", lambda s, ref, c: (old_rec, False))
-        monkeypatch.setattr(rt, "is_session_fresh", lambda r, at_hour, idle_minutes: False)
-        monkeypatch.setattr(rt, "reset_session", lambda s, r, cwd: new_rec)
-        monkeypatch.setattr(rt, "resolve_session_file", lambda r, cwd: "/tmp/y.jsonl")
+        monkeypatch.setattr(command_rt, "load_session_store", lambda cwd: store)
+        monkeypatch.setattr(command_rt, "resolve_session", lambda s, ref, c: (old_rec, False))
+        monkeypatch.setattr(command_rt, "is_session_fresh", lambda r, at_hour, idle_minutes: False)
+        monkeypatch.setattr(command_rt, "reset_session", lambda s, r, cwd: new_rec)
+        monkeypatch.setattr(command_rt, "resolve_session_file", lambda r, cwd: "/tmp/y.jsonl")
         _s, out_rec, is_new, _f = rt.get_session(SessionRef(session_key="keep"), SelmaConfig(), "/cwd")
         assert out_rec is new_rec
         assert is_new is True
@@ -391,24 +393,26 @@ class TestAgentCommand:
         async def fake_deliver(result: Any, delivery: Any) -> None:
             state["delivered"] = (result, delivery)
 
-        monkeypatch.setattr(rt, "load_config", lambda cwd: cfg)
-        monkeypatch.setattr(rt, "get_session", lambda ref, c, cwd: (store, rec, False, "/tmp/sess.jsonl"))
-        monkeypatch.setattr(rt, "detect_bootstrap_mode", lambda ws: "none")
-        monkeypatch.setattr(rt, "get_skills_snapshot_version", lambda ws: "v1")
-        monkeypatch.setattr(rt, "build_skill_snapshot", lambda ws, ver: SkillsSnapshot(version="v1", skill_names=[]))
-        monkeypatch.setattr(rt, "save_session_store", lambda s: None)
+        monkeypatch.setattr(command_rt, "load_config", lambda cwd: cfg)
+        monkeypatch.setattr(command_rt, "get_session", lambda ref, c, cwd: (store, rec, False, "/tmp/sess.jsonl"))
+        monkeypatch.setattr(command_rt, "detect_bootstrap_mode", lambda ws: "none")
+        monkeypatch.setattr(command_rt, "get_skills_snapshot_version", lambda ws: "v1")
         monkeypatch.setattr(
-            rt,
+            command_rt, "build_skill_snapshot", lambda ws, ver: SkillsSnapshot(version="v1", skill_names=[])
+        )
+        monkeypatch.setattr(command_rt, "save_session_store", lambda s: None)
+        monkeypatch.setattr(
+            command_rt,
             "get_default_model",
             lambda c: ("ollama", "llama-default"),
         )
-        monkeypatch.setattr(rt, "resolve_thinking_default", lambda c, p, m: "low")
-        monkeypatch.setattr(rt, "resolve_timeout", lambda c: 60)
-        monkeypatch.setattr(rt, "resolve_tools_allow", lambda c: None)
-        monkeypatch.setattr(rt, "run_embedded_pi_agent", fake_run)
-        monkeypatch.setattr(rt, "deliver_result", deliver or fake_deliver)
+        monkeypatch.setattr(command_rt, "resolve_thinking_default", lambda c, p, m: "low")
+        monkeypatch.setattr(command_rt, "resolve_timeout", lambda c: 60)
+        monkeypatch.setattr(command_rt, "resolve_tools_allow", lambda c: None)
+        monkeypatch.setattr(command_rt, "run_embedded_pi_agent", fake_run)
+        monkeypatch.setattr(command_rt, "deliver_result", deliver or fake_deliver)
         monkeypatch.setattr(
-            rt,
+            command_rt,
             "update_session_store_after_run",
             lambda *, store, session_record, provider, model: state.update(override=(provider, model)),
         )
@@ -431,7 +435,7 @@ class TestAgentCommand:
         rec = SessionRecord(session_id="rec1", session_key="k", thinking_level="high", model_override="custom")
         # rec mit Overrides injizieren, um Provider/Model-Wahl zu testen
         monkeypatch.setattr(
-            rt,
+            command_rt,
             "get_session",
             lambda ref, c, cwd: (SessionStore(store_path="/tmp/s.json"), rec, True, "/tmp/s.jsonl"),
         )
@@ -462,7 +466,7 @@ class TestAgentCommand:
 
     def test_timeout_zero_is_forwarded(self, monkeypatch):
         state = self._install_fakes(monkeypatch)
-        monkeypatch.setattr(rt, "resolve_timeout", lambda c: 0)
+        monkeypatch.setattr(command_rt, "resolve_timeout", lambda c: 0)
         run(rt.agent_command("Moin", session_key="k"))
         assert state["run_opts"].timeout_ms == 0
 
@@ -522,7 +526,7 @@ class TestAgentCommand:
         """is_new_session wird 1:1 aus get_session durchgereicht (neue vs. bestehende Session)."""
         state = self._install_fakes(monkeypatch)
         monkeypatch.setattr(
-            rt,
+            command_rt,
             "get_session",
             lambda ref, c, cwd: (
                 SessionStore(store_path="/tmp/s.json"),
@@ -616,13 +620,13 @@ class TestRepairContextOverflow:
         async def fake_flush(key: str, cwd: str) -> None:
             flushed.append((key, cwd))
 
-        monkeypatch.setattr(rt, "memory_flush", fake_flush)
+        monkeypatch.setattr(command_rt, "memory_flush", fake_flush)
         return flushed
 
     def test_limit_reached_gives_up(self, monkeypatch, tmp_path):
         self._patch_flush(monkeypatch, tmp_path)
         compacted = []
-        monkeypatch.setattr(rt, "compact_session", lambda **kw: compacted.append(kw))
+        monkeypatch.setattr(attempt_rt, "compact_session", lambda **kw: compacted.append(kw))
         opts = make_opts()
         state = rt.LoopState(compaction_attempts=rt.MAX_OVERFLOW_COMPACTION_ATTEMPTS)
         err = rt.AttemptError(kind="context_overflow", message="ctx")
@@ -650,7 +654,7 @@ class TestRepairContextOverflow:
             calls["config"] = config
             return CompactOk()
 
-        monkeypatch.setattr(rt, "compact_session", fake_compact)
+        monkeypatch.setattr(attempt_rt, "compact_session", fake_compact)
         opts = make_opts(session_file="/tmp/abc.jsonl")
         state = rt.LoopState()
         err = rt.AttemptError(kind="context_overflow", message="too big")
@@ -672,7 +676,7 @@ class TestRepairContextOverflow:
             reason = "Nichts zu komprimieren"
 
         monkeypatch.setattr(
-            rt,
+            attempt_rt,
             "compact_session",
             lambda **kw: _FakeCoro(CompactNo()),
         )
@@ -696,7 +700,7 @@ class TestMemoryFlush:
             args["kw"] = kw
             return None
 
-        monkeypatch.setattr(rt, "agent_command", fake_agent_command)
+        monkeypatch.setattr(command_rt, "agent_command", fake_agent_command)
         run(rt.memory_flush("mykey", "/cwd-x"))
         assert "Memory Flush" in args["prompt"]
         assert ".selma/workspace/memory/" in args["prompt"]
@@ -707,7 +711,7 @@ class TestMemoryFlush:
         async def fake_agent_command(prompt: str, **kw: Any) -> Any:
             raise RuntimeError("model down")
 
-        monkeypatch.setattr(rt, "agent_command", fake_agent_command)
+        monkeypatch.setattr(command_rt, "agent_command", fake_agent_command)
         run(rt.memory_flush("mykey", "/cwd-x"))  # kein Raise
 
 
@@ -737,7 +741,7 @@ class TestRunEmbeddedPiAgent:
         async def fake_attempt(opts: Any) -> Any:
             return _FakeAttempt(result=expected)
 
-        monkeypatch.setattr(rt, "run_embedded_attempt", fake_attempt)
+        monkeypatch.setattr(attempt_rt, "run_embedded_attempt", fake_attempt)
         out = run(rt.run_embedded_pi_agent(make_opts()))
         assert out is expected
 
@@ -754,7 +758,7 @@ class TestRunEmbeddedPiAgent:
                 return attempts[i]
             raise AssertionError(f"mehr Attempts als erwartet ({i})")
 
-        monkeypatch.setattr(rt, "run_embedded_attempt", fake_attempt)
+        monkeypatch.setattr(attempt_rt, "run_embedded_attempt", fake_attempt)
         return patches
 
     def test_context_overflow_repair_then_success(self, monkeypatch):
@@ -763,12 +767,12 @@ class TestRunEmbeddedPiAgent:
             _FakeAttempt(error=rt.AttemptError(kind="context_overflow", message="ctx")),
             _FakeAttempt(result=ok),
         ]
-        monkeypatch.setattr(rt, "repair_context_overflow", lambda opts, err, state: _FakeCoro((True, None)))
+        monkeypatch.setattr(attempt_rt, "repair_context_overflow", lambda opts, err, state: _FakeCoro((True, None)))
 
         async def fake_attempt(opts: Any) -> Any:
             return attempts.pop(0)
 
-        monkeypatch.setattr(rt, "run_embedded_attempt", fake_attempt)
+        monkeypatch.setattr(attempt_rt, "run_embedded_attempt", fake_attempt)
         out = run(rt.run_embedded_pi_agent(make_opts()))
         assert out is ok
 
@@ -785,12 +789,12 @@ class TestRunEmbeddedPiAgent:
             state.active_thinking = "low"
             return True, None
 
-        monkeypatch.setattr(rt, "repair_thinking_not_supported", fake_repair)
+        monkeypatch.setattr(attempt_rt, "repair_thinking_not_supported", fake_repair)
 
         async def fake_attempt(opts: Any) -> Any:
             return attempts.pop(0)
 
-        monkeypatch.setattr(rt, "run_embedded_attempt", fake_attempt)
+        monkeypatch.setattr(attempt_rt, "run_embedded_attempt", fake_attempt)
         opts = make_opts()
         out = run(rt.run_embedded_pi_agent(opts))
         assert out is ok
@@ -811,12 +815,12 @@ class TestRunEmbeddedPiAgent:
             called.append(opts.run_id)
             return False, error_res
 
-        monkeypatch.setattr(rt, "repair_thinking_not_supported", fake_repair)
+        monkeypatch.setattr(attempt_rt, "repair_thinking_not_supported", fake_repair)
 
         async def fake_attempt(opts: Any) -> Any:
             return _FakeAttempt(error=rt.AttemptError(kind="thinking_not_supported", message="x"))
 
-        monkeypatch.setattr(rt, "run_embedded_attempt", fake_attempt)
+        monkeypatch.setattr(attempt_rt, "run_embedded_attempt", fake_attempt)
         out = run(rt.run_embedded_pi_agent(make_opts()))
         assert out is error_res
 
@@ -824,7 +828,7 @@ class TestRunEmbeddedPiAgent:
         async def fake_attempt(opts: Any) -> Any:
             return _FakeAttempt(error=rt.AttemptError(kind="aborted", message="timeout"))
 
-        monkeypatch.setattr(rt, "run_embedded_attempt", fake_attempt)
+        monkeypatch.setattr(attempt_rt, "run_embedded_attempt", fake_attempt)
         out = run(rt.run_embedded_pi_agent(make_opts()))
         assert out.payloads[0].is_error is True
         assert out.meta.aborted is True
@@ -836,7 +840,7 @@ class TestRunEmbeddedPiAgent:
                 error=rt.AttemptError(kind="other", message="mysteriöser crash"),  # type: ignore[arg-type]
             )
 
-        monkeypatch.setattr(rt, "run_embedded_attempt", fake_attempt)
+        monkeypatch.setattr(attempt_rt, "run_embedded_attempt", fake_attempt)
         with pytest.raises(RuntimeError, match="mysteriöser crash"):
             run(rt.run_embedded_pi_agent(make_opts()))
 
@@ -848,7 +852,7 @@ class TestRunEmbeddedPiAgent:
             received.append(opts)
             return _FakeAttempt(result=self.success_result())
 
-        monkeypatch.setattr(rt, "run_embedded_attempt", fake_attempt)
+        monkeypatch.setattr(attempt_rt, "run_embedded_attempt", fake_attempt)
         run(rt.run_embedded_pi_agent(make_opts()))
         assert received and received[0].thinking_level == "medium"
 
@@ -1202,20 +1206,22 @@ class TestRunEmbeddedAttempt:
             session=session, system_prompt=None, prompt_prefix=None, loaded_contexts=[]
         )
         monkeypatch.setattr(
-            rt,
+            attempt_rt,
             "create_agent_session",
             lambda options: _async_returning(session),
         )
         monkeypatch.setattr(
-            rt, "create_selma_tools", lambda cwd, config=None: tools or [make_tool(n) for n in ["read", "write"]]
+            attempt_rt,
+            "create_selma_tools",
+            lambda cwd, config=None: tools or [make_tool(n) for n in ["read", "write"]],
         )
         monkeypatch.setattr(
-            rt,
+            attempt_rt,
             "build_agent_system_prompt",
             lambda params: (setattr(state, "system_prompt", "SYSTEM-PROMPT"), "SYSTEM-PROMPT")[1],
         )
-        monkeypatch.setattr(rt, "build_agent_user_prompt_prefix", lambda mode: "BOOTSTRAP-PFX")
-        monkeypatch.setattr(rt, "_load_context_files", lambda ws: state.loaded_contexts)
+        monkeypatch.setattr(attempt_rt, "build_agent_user_prompt_prefix", lambda mode: "BOOTSTRAP-PFX")
+        monkeypatch.setattr(attempt_rt, "_load_context_files", lambda ws: state.loaded_contexts)
 
         return state
 
@@ -1263,7 +1269,7 @@ class TestRunEmbeddedAttempt:
             captured_tools.extend(options.tools)
             return session
 
-        monkeypatch.setattr(rt, "create_agent_session", fake_create)
+        monkeypatch.setattr(attempt_rt, "create_agent_session", fake_create)
         opts = make_opts(tools_allow=["read"], session_file=str(tmp_path / "s.jsonl"), workspace_dir=str(tmp_path))
         run(rt.run_embedded_attempt(opts))
         assert [t.name for t in captured_tools] == ["read"]
@@ -1279,7 +1285,7 @@ class TestRunEmbeddedAttempt:
             passed.append(params)
             return "SP"
 
-        monkeypatch.setattr(rt, "build_agent_system_prompt", fake_build)
+        monkeypatch.setattr(attempt_rt, "build_agent_system_prompt", fake_build)
         opts = make_opts(session_file=str(tmp_path / "s.jsonl"), workspace_dir=str(tmp_path))
         run(rt.run_embedded_attempt(opts))
         assert passed[0].context_files == context_files
@@ -1295,7 +1301,7 @@ class TestRunEmbeddedAttempt:
             captured.extend(options.tools)
             return session
 
-        monkeypatch.setattr(rt, "create_agent_session", fake_create)
+        monkeypatch.setattr(attempt_rt, "create_agent_session", fake_create)
         opts = make_opts(session_file=str(tmp_path / "s.jsonl"), workspace_dir=str(tmp_path))
         run(rt.run_embedded_attempt(opts))
         assert [t.name for t in captured] == ["a", "b"]
